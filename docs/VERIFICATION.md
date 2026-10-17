@@ -119,6 +119,17 @@ installed app retained enabled launch-at-login registration and showed the
 migrated one-hour Claude renewal lead. Live usage changed after background
 polling without rotating native credentials.
 
+The public [v0.2.1 release](https://github.com/morajabi/acc/releases/tag/v0.2.1)
+passed all 104 tests, offline CLI workflows, and universal bundle checks in
+[GitHub Actions](https://github.com/morajabi/acc/actions/runs/39054794686).
+Its downloaded ZIP was 1,948,705 bytes and matched both the published SHA-256
+checksum and GitHub's asset digest. The extracted app verified as version
+0.2.1 (7), with arm64 and x86_64 slices targeting macOS 14. The public bundle
+is ad-hoc signed and unnotarized. That downloaded app was signed locally with
+the owner's existing identity, installed in Applications, and relaunched in
+window mode. Both providers showed current usage; native Settings confirmed
+launch at login remained enabled and Claude's one-hour renewal lead was retained.
+
 Real cancellation checks used **Codex 0.162.0-alpha.13** and **Claude Code
 2.1.292**. Each CLI ran under a separate test vault and temporary provider homes;
 neither test used the installed app's saved account store. Cancelling Acc returned
