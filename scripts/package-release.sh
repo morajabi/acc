@@ -10,7 +10,9 @@ if [[ -n "${ACC_RELEASE_TAG:-}" && "$ACC_RELEASE_TAG" != "v$acc_version" ]]; the
     exit 1
 fi
 codesign --verify --deep --strict "$acc_bundle"
-xcrun lipo -verify_arch arm64 x86_64 "$acc_bundle/Contents/MacOS/AccMenuBar"
+for acc_architecture in arm64 x86_64; do
+    xcrun lipo "$acc_bundle/Contents/MacOS/AccMenuBar" -verify_arch "$acc_architecture"
+done
 mkdir -p "$acc_release_dir"
 rm -f "$acc_release_dir/Acc-macOS.zip"
 ditto -c -k --sequesterRsrc --keepParent "$acc_bundle" "$acc_release_dir/Acc-macOS.zip"

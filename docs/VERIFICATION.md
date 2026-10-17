@@ -57,7 +57,7 @@ Native storage behavior is exercised against temporary files and an injected Key
 
 ## Automated checks
 
-The v0.2.0 pass uses 104 Swift tests, the offline CLI smoke suite, a release build,
+The v0.2 series uses 104 Swift tests, the offline CLI smoke suite, a release build,
 bundle signature verification, and plist validation. The CLI suite exercises
 real subprocess supervision with fake provider CLIs, signal cancellation, pending
 login recovery, and shutdown. Static renders cover 28 layouts across light and
@@ -123,9 +123,17 @@ Real cancellation checks used **Codex 0.162.0-alpha.13** and **Claude Code
 2.1.292**. Each CLI ran under a separate test vault and temporary provider homes;
 neither test used the installed app's saved account store. Cancelling Acc returned
 exit status 130, stopped the owned provider process, removed the pending sign-in
-directory, and saved no account. Native credential/configuration file hashes and
-Claude Keychain metadata remained unchanged. The OpenAI browser sign-in page was
-observed; completed browser consent for either provider remains separate evidence.
+directory, and saved no account. Initial runs left native credential/configuration
+file hashes and Claude Keychain metadata unchanged. Both cancellation paths passed
+again with the final v0.2 core, including removal of the prewritten recovery intent.
+Native file modification times predated those final attempts; the Claude Keychain
+entry remained unchanged. The OpenAI browser sign-in page was observed; completed
+browser consent for either provider remains separate evidence.
+
+An intervening native Codex token update was adopted by Acc without another Acc
+renewal attempt. The saved credential and tracked native fingerprint matched;
+pending-publication and refresh-in-flight flags were clear. The exact external
+writer was not identified.
 
 ## Limits of this evidence
 

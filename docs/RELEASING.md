@@ -14,8 +14,8 @@ Public assets are **Acc-macOS.zip** and **SHA256SUMS.txt**.
 3. Create and push the matching tag, for example:
 
    ```sh
-   git tag v0.2.0
-   git push origin v0.2.0
+   git tag v0.2.1
+   git push origin v0.2.1
    ```
 
 The **Release** workflow publishes only after all its checks pass. It creates a
@@ -28,7 +28,7 @@ existing tag, and leave **draft** selected to review it before publishing. The
 same operation is available through the CLI:
 
 ```sh
-gh workflow run release.yml -f tag=v0.2.0 -F draft=true
+gh workflow run release.yml -f tag=v0.2.1 -F draft=true
 ```
 
 ## Signing and notarization
@@ -81,7 +81,8 @@ Download the release assets, then run from their directory:
 shasum -a 256 -c SHA256SUMS.txt
 ditto -x -k Acc-macOS.zip unpacked
 codesign --verify --deep --strict unpacked/Acc.app
-lipo -verify_arch arm64 x86_64 unpacked/Acc.app/Contents/MacOS/AccMenuBar
+lipo unpacked/Acc.app/Contents/MacOS/AccMenuBar -verify_arch arm64
+lipo unpacked/Acc.app/Contents/MacOS/AccMenuBar -verify_arch x86_64
 ```
 
 For a notarized release, also run `xcrun stapler validate unpacked/Acc.app` and

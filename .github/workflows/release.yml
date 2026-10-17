@@ -69,8 +69,10 @@ jobs:
         run: |
           codesign --verify --deep --strict /Applications/Acc.app
           plutil -lint /Applications/Acc.app/Contents/Info.plist
-          xcrun lipo -verify_arch arm64 x86_64 dist/Acc.app/Contents/MacOS/AccMenuBar
-          xcrun lipo -verify_arch arm64 x86_64 dist/acc
+          for architecture in arm64 x86_64; do
+            xcrun lipo dist/Acc.app/Contents/MacOS/AccMenuBar -verify_arch "$architecture"
+            xcrun lipo dist/acc -verify_arch "$architecture"
+          done
           cmp dist/Acc.app/Contents/MacOS/AccMenuBar /Applications/Acc.app/Contents/MacOS/AccMenuBar
       - name: Package and optionally notarize
         run: ./scripts/package-release.sh
