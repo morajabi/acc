@@ -10,7 +10,10 @@ import AppKit
 let previews = NSRunningApplication.runningApplications(withBundleIdentifier: "dev.mo.acc.preview")
 for app in previews { _ = app.terminate() }
 let deadline = Date().addingTimeInterval(10)
-while previews.contains(where: { !$0.isTerminated }), Date() < deadline { Thread.sleep(forTimeInterval: 0.1) }
+while previews.contains(where: { !$0.isTerminated }), Date() < deadline {
+    // NSRunningApplication receives termination updates through the run loop.
+    RunLoop.current.run(until: Date().addingTimeInterval(0.1))
+}
 guard previews.allSatisfy(\.isTerminated) else {
     fputs("Quit Acc Preview, then try again.\n", stderr)
     exit(1)

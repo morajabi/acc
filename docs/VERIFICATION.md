@@ -99,7 +99,10 @@ are not included in this repository.
 
 The v0.1.2 interface pass additionally checks native toolbar/menu commands,
 keyboard provider selection, Settings, and switch/rename/detach/resume using
-synthetic preview accounts. The interface follows Apple's guidance for
+synthetic preview accounts. Switching between menu-bar and window presentation
+from Settings opened and hid the expected window without a restart. The installed
+v0.1.2 app showed live usage and renewal deadlines for both providers after
+relaunch, with Open at login enabled. The interface follows Apple's guidance for
 [macOS](https://developer.apple.com/design/human-interface-guidelines/designing-for-macos),
 [toolbars](https://developer.apple.com/design/human-interface-guidelines/toolbars),
 [menus](https://developer.apple.com/design/human-interface-guidelines/menus), and
