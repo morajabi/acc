@@ -126,6 +126,49 @@ import Testing
     #expect(login["CLAUDE_SECURESTORAGE_CONFIG_DIR"] == login["CLAUDE_CONFIG_DIR"])
 }
 
+@Test func claudeKeychainServiceMatchesSecureStorageOverrideAndUnicodeNormalization() {
+    #expect(AccPaths.claudeService(configDirectory: "/tmp/claude-config-fixture") == "Claude Code-credentials-91a06639")
+    #expect(AccPaths.claudeService(configDirectory: "/tmp/claude-config-fixture",
+        secureStorageDirectory: "/tmp/claude-secure-fixture") == "Claude Code-credentials-8975a69a")
+    #expect(AccPaths.claudeService(configDirectory: "/tmp/claude-config-fixture",
+        secureStorageDirectory: "") == "Claude Code-credentials")
+    for directory in ["/tmp/claude-caf\u{00e9}", "/tmp/claude-cafe\u{0301}"] {
+        #expect(AccPaths.claudeService(configDirectory: directory) == "Claude Code-credentials-088267bb")
+        #expect(AccPaths.claudeService(configDirectory: nil, secureStorageDirectory: directory) == "Claude Code-credentials-088267bb")
+    }
+}
+
+@Test func claudeSeparateSecureStoreReadsTheRightKeychainIdentity() throws {
+    let env = TestEnvironment(); defer { env.cleanup() }
+    let config = env.root.appendingPathComponent("config").path
+    let secure = env.root.appendingPathComponent("secure").path
+    let paths = AccPaths(root: env.paths.root, home: env.root,
+        environment: ["CLAUDE_CONFIG_DIR": config, "CLAUDE_SECURESTORAGE_CONFIG_DIR": secure])
+    let keychain = MemoryKeychain()
+    let oldService = AccPaths.claudeService(configDirectory: config)
+    let expectedService = AccPaths.claudeService(configDirectory: secure)
+    try keychain.write(claude("wrong").document, service: oldService, account: paths.claudeKeychainAccount)
+    try keychain.write(claude("correct").document, service: expectedService, account: paths.claudeKeychainAccount)
+    let native = NativeCredentialStore(paths: paths, keychain: keychain)
+    #expect(try native.read(.claude)?.credential.identity.userID == "correct")
+    try native.clear(.claude, expected: native.read(.claude))
+    #expect(try keychain.read(service: expectedService, account: paths.claudeKeychainAccount) == nil)
+    #expect(try keychain.read(service: oldService, account: paths.claudeKeychainAccount) != nil)
+}
+
+@Test func emptyClaudeSecureStorageOverrideUsesDefaultKeychainWithCustomConfig() throws {
+    let env = TestEnvironment(); defer { env.cleanup() }
+    let config = env.root.appendingPathComponent("config").path
+    let paths = AccPaths(root: env.paths.root, home: env.root,
+        environment: ["CLAUDE_CONFIG_DIR": config, "CLAUDE_SECURESTORAGE_CONFIG_DIR": ""])
+    #expect(paths.claudeCredentialsHome == env.root.appendingPathComponent(".claude"))
+    #expect(paths.claudeKeychainService == "Claude Code-credentials")
+    let keychain = MemoryKeychain()
+    try keychain.write(claude().document, service: "Claude Code-credentials", account: paths.claudeKeychainAccount)
+    let native = NativeCredentialStore(paths: paths, keychain: keychain)
+    #expect(try native.read(.claude)?.credential.identity.userID == "alice")
+}
+
 @Test func codexAutoFallsBackToFileOnKeychainReadFailure() throws {
     let env = TestEnvironment(); defer { env.cleanup() }
     try privateWrite(Data("cli_auth_credentials_store = 'auto'\n".utf8), to: env.paths.codexHome.appendingPathComponent("config.toml"))

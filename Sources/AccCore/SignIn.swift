@@ -38,6 +38,10 @@ public actor SignInService {
             .compactMap { url in
                 guard let id = UUID(uuidString: url.lastPathComponent),
                       FileManager.default.fileExists(atPath: url.appendingPathComponent("pending.json").path) else { return nil }
+                let lock: VaultLock
+                do { lock = try VaultLock(root: url) }
+                catch AccError.busy { return nil }
+                defer { withExtendedLifetime(lock) {} }
                 return try pending(id)
             }.sorted { $0.createdAt < $1.createdAt }
     }
@@ -50,9 +54,11 @@ public actor SignInService {
             return record
         } catch { throw AccError.storage }
     }
-    /// Retry saving a completed login without repeating browser authentication.
+    /// Recover a staged login without repeating browser authentication. An
+    /// interrupted intent with no credentials remains available to discard.
     @discardableResult
     public func completePending(_ id: UUID, asNew: Bool = false) async throws -> UUID {
+        try Task.checkCancellation()
         let record = try pending(id)
         let lock = try VaultLock(root: directory(id)); defer { withExtendedLifetime(lock) {} }
         let saved = directory(id).appendingPathComponent("saved-login.json")
@@ -67,6 +73,7 @@ public actor SignInService {
             credential = value
             try privateWrite(JSONEncoder().encode(value), to: saved)
         }
+        try Task.checkCancellation()
         let result = try await accounts.importCredential(credential, label: record.label, replacing: asNew ? nil : record.replacingID)
         try cleanup(record)
         return result
@@ -107,27 +114,38 @@ public actor SignInService {
     }
     public func signIn(_ provider: Provider, label: String? = nil, replacing id: UUID? = nil) async throws -> UUID {
         guard !running else { throw AccError.busy }
+        try Task.checkCancellation()
         let executable = try Self.executable(provider, environment: inheritedEnvironment)
         running = true
         defer { running = false }
         let record = PendingSignIn(id: UUID(), provider: provider, label: label, replacingID: id, createdAt: Date())
+        try await runLogin(record, executable: executable)
+        do { return try await completePending(record.id) }
+        catch is CancellationError { throw CancellationError() }
+        catch { throw AccError.pendingSignIn(record.id) }
+    }
+    private func runLogin(_ record: PendingSignIn, executable: URL) async throws {
         try privateDirectory(stagingRoot)
         let directory = directory(record.id)
-        try privateDirectory(directory)
-        var env = Self.environment(provider, directory: directory, inherited: inheritedEnvironment)
+        let lock = try VaultLock(root: directory)
+        defer { withExtendedLifetime(lock) {} }
+        var completed = false
+        defer { if !completed { try? cleanup(record) } }
+        // Persist the recovery route before the provider can create credentials.
+        // The staging lock hides in-progress intent from other app/CLI instances.
+        try privateWrite(JSONEncoder().encode(record), to: directory.appendingPathComponent("pending.json"))
+        var env = Self.environment(record.provider, directory: directory, inherited: inheritedEnvironment)
         // Menu-bar apps inherit a minimal PATH; npm CLI wrappers still need node.
         env["PATH"] = ([executable.deletingLastPathComponent().path, env["PATH"] ?? "",
             "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin"]).joined(separator: ":")
         let process = Process()
         process.executableURL = executable
-        process.arguments = Self.arguments(provider)
+        process.arguments = Self.arguments(record.provider)
         process.environment = env
         process.currentDirectoryURL = directory
         process.standardInput = FileHandle.nullDevice
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
-        var completed = false
-        defer { if !completed { try? cleanup(record) } }
         do { try process.run() } catch { throw AccError.loginFailed }
         do {
             let deadline = Date().addingTimeInterval(timeoutSeconds)
@@ -148,11 +166,9 @@ public actor SignInService {
             throw error
         }
         guard process.terminationStatus == 0 else { throw AccError.loginFailed }
+        try Task.checkCancellation()
         // From this point a successful browser login survives storage, Keychain,
         // profile endpoint, or process-lock errors and can be completed later.
         completed = true
-        try privateWrite(JSONEncoder().encode(record), to: directory.appendingPathComponent("pending.json"))
-        do { return try await completePending(record.id) }
-        catch { throw AccError.pendingSignIn(record.id) }
     }
 }

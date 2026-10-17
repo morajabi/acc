@@ -28,11 +28,16 @@ public struct AccPaths: Sendable {
         let legacyConfig = claudeHome.appendingPathComponent(".config.json")
         claudeConfig = FileManager.default.fileExists(atPath: legacyConfig.path) ? legacyConfig
             : custom == nil ? home.appendingPathComponent(".claude.json") : claudeHome.appendingPathComponent(".claude.json")
-        claudeKeychainService = Self.claudeService(configDirectory: custom)
+        claudeKeychainService = Self.claudeService(configDirectory: custom,
+            secureStorageDirectory: environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"])
         claudeKeychainAccount = environment["USER"].flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName()
     }
-    public static func claudeService(configDirectory: String?) -> String {
-        "Claude Code-credentials" + (configDirectory.map { "-" + digest(Data($0.utf8)).prefix(8) } ?? "")
+    public static func claudeService(configDirectory: String?, secureStorageDirectory: String? = nil) -> String {
+        // Claude's explicit secure-storage override wins, including an empty
+        // value selecting the default store. It hashes the NFC-normalized path.
+        let directory = secureStorageDirectory ?? configDirectory
+        guard let directory, !directory.isEmpty else { return "Claude Code-credentials" }
+        return "Claude Code-credentials-" + digest(Data(directory.precomposedStringWithCanonicalMapping.utf8)).prefix(8)
     }
 }
 

@@ -196,8 +196,8 @@ struct PendingLoginRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("Sign-in ready to add", systemImage: "person.crop.circle.badge.checkmark").font(.headline)
-            Text("Your browser sign-in is saved. Finish adding it to start managing this account.")
+            Label("Unfinished sign-in", systemImage: "person.crop.circle.badge.checkmark").font(.headline)
+            Text("Finish adding this browser sign-in, or discard it to start again.")
                 .font(.callout).foregroundStyle(.secondary)
             HStack {
                 Button("Finish Adding") { model.finishPending(pending.id) }.buttonStyle(.borderedProminent)
@@ -208,7 +208,7 @@ struct PendingLoginRow: View {
                     .accessibilityLabel("Pending sign-in actions")
             }.disabled(model.busy)
         }.accountCard()
-            .alert("Discard completed sign-in?", isPresented: $discard) {
+            .alert("Discard sign-in?", isPresented: $discard) {
                 Button("Discard", role: .destructive) { model.discardPending(pending.id) }
                 Button("Cancel", role: .cancel) {}
             } message: { Text("You will need to sign in again to add this account.") }

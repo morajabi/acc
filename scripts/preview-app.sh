@@ -27,4 +27,6 @@ ditto dist/Acc.app "$acc_stage/Acc Preview.app"
 codesign --force --sign - "$acc_stage/Acc Preview.app"
 if [[ -d "$acc_preview" ]]; then mv "$acc_preview" "$acc_stage/Previous.app"; fi
 mv "$acc_stage/Acc Preview.app" "$acc_preview"
-open "$acc_preview" --args --window --demo
+# Default to the regular window; pass --show-panel to inspect the menu-bar popover.
+if (( $# == 0 )); then set -- --window; fi
+open "$acc_preview" --args --demo "$@"
