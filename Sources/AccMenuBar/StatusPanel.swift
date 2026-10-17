@@ -73,7 +73,8 @@ import Observation
         guard !popover.isShown, let button = statusItem?.button else { return }
         let availableHeight = (button.window?.screen ?? NSScreen.main)?.visibleFrame.height ?? 800
         let savedHeight = model.isDemo ? 0 : UserDefaults.standard.double(forKey: "panelHeight")
-        let height = min(max(320, savedHeight.nonzero ?? 430), availableHeight - 48)
+        let defaultHeight: Double = model.isDemo ? 490 : 430
+        let height = min(max(320, savedHeight.nonzero ?? defaultHeight), availableHeight - 48)
         if popover.contentViewController == nil {
             let controller = NSHostingController(rootView: AccountPanel(model: model, compact: true))
             // The system popover owns the background and sizing, not an opaque

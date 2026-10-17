@@ -6,13 +6,7 @@ import AccCore
 @MainActor enum PreviewRenderer {
     static func render(to directory: URL) throws {
         let app = NSApplication.shared
-        let previousApplication = NSWorkspace.shared.frontmostApplication
-        app.setActivationPolicy(.accessory)
-        app.finishLaunching()
-        app.activate(ignoringOtherApps: true)
-        defer {
-            if app.isActive { previousApplication?.activate(options: []) }
-        }
+        app.setActivationPolicy(.prohibited)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for theme in ["light", "dark"] {
             let appearance = NSAppearance(named: theme == "light" ? .aqua : .darkAqua)!
@@ -57,9 +51,9 @@ import AccCore
         print("Rendered 28 credential-free previews to \(directory.path)")
     }
     private static func snapshot<V: View>(_ content: V, size: NSSize, appearance: NSAppearance, material: Bool = false, to url: URL) throws {
-        let window = PreviewWindow(contentRect: NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: size),
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),
             styleMask: [.borderless], backing: .buffered, defer: false)
-        let view = NSHostingView(rootView: ActivePreview(content: content)
+        let view = NSHostingView(rootView: content
             .environment(\.colorScheme, appearance.name == .darkAqua ? .dark : .light))
         view.sizingOptions = []
         window.appearance = appearance
@@ -77,10 +71,6 @@ import AccCore
         surface.addSubview(view)
         window.contentView = surface
         view.frame = NSRect(origin: .zero, size: size)
-        // Establish real AppKit key state without ordering any preview window
-        // onscreen. This also gives represented native controls their active tint.
-        window.makeKey()
-        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
         surface.layoutSubtreeIfNeeded()
         guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
             pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
@@ -90,19 +80,5 @@ import AccCore
         surface.cacheDisplay(in: surface.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw AccError.storage }
         try data.write(to: url)
-    }
-}
-
-private final class PreviewWindow: NSWindow {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { true }
-}
-
-private struct ActivePreview<Content: View>: View {
-    let content: Content
-
-    var body: some View {
-        if #available(macOS 15, *) { content.environment(\.appearsActive, true) }
-        else { content.environment(\.controlActiveState, .key) }
     }
 }
