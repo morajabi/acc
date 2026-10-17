@@ -83,6 +83,10 @@ import Observation
         }
         popover.contentSize = NSSize(width: 380, height: height)
         model.panelHeight = height
+        // A status-item click or application reopen doesn't necessarily make an
+        // accessory app active. Activate before showing the popover so native
+        // controls draw their active state and keyboard/drag focus stays here.
+        NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         model.updateLoginStatus()
