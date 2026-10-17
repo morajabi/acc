@@ -9,63 +9,86 @@ struct AccountPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             if compact { PanelHeader(model: model) }
-            ProviderPicker(selection: $model.selectedProvider)
-                .padding(.horizontal, 16).padding(.vertical, compact ? 4 : 12)
-                .padding(.bottom, compact ? 10 : 0)
+            else {
+                ProviderPicker(selection: $model.selectedProvider)
+                    .frame(height: 28).padding(.horizontal, 14).padding(.vertical, 10)
+            }
             Divider()
             ScrollView {
-                VStack(spacing: 12) {
+                VStack(spacing: 0) {
                     if let login = model.selectedCurrent, login.savedAccountID == nil,
                        login.identity != nil || login.message != nil {
                         CurrentLoginRow(login: login, model: model)
                     }
                     ForEach(model.selectedPending) { PendingLoginRow(pending: $0, model: model) }
-                    ForEach(model.selectedAccounts) { AccountRow(account: $0, model: model) }
+                    ForEach(model.selectedAccounts) { account in
+                        VStack(spacing: 0) {
+                            AccountRow(account: account, model: model)
+                            if account.id != model.selectedAccounts.last?.id { Divider().padding(.horizontal, 14) }
+                        }
+                    }
                     if model.selectedAccounts.isEmpty && model.selectedCurrent?.identity == nil
                         && model.selectedCurrent?.message == nil && model.selectedPending.isEmpty {
                         EmptyAccountsView(provider: model.selectedProvider, model: model)
                     }
                 }
-                .frame(maxWidth: compact ? .infinity : 640)
-                .padding(16).frame(maxWidth: .infinity)
+                .frame(maxWidth: compact ? .infinity : 580)
+                .padding(.vertical, 4).frame(maxWidth: .infinity)
             }.frame(maxWidth: .infinity, maxHeight: .infinity)
             OperationBanner(model: model)
             Divider()
             PanelFooter(model: model, compact: compact)
             if compact { PanelResizeHandle(model: model) }
         }
-        .frame(minWidth: 390, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(Color(nsColor: .windowBackgroundColor))
-        .task { do { try await model.reload() } catch { model.message = safeMessage(error) } }
+        .frame(minWidth: 360, maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onChange(of: model.selectedProvider) { model.refreshWhenPresented() }
     }
 }
 
-struct ProviderPicker: View {
+/// AppKit's segmented control retains both provider names and template marks.
+/// SwiftUI's macOS segmented picker can omit the image in a custom label.
+struct ProviderPicker: NSViewRepresentable {
     @Binding var selection: Provider
 
-    var body: some View {
-        Picker("Provider", selection: $selection) {
-            Text("ChatGPT").tag(Provider.codex)
-            Text("Claude").tag(Provider.claude)
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl(labels: ["ChatGPT", "Claude"], trackingMode: .selectOne,
+            target: context.coordinator, action: #selector(Coordinator.selectProvider(_:)))
+        control.segmentDistribution = .fillEqually
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        for (index, provider) in Provider.allCases.enumerated() {
+            control.setImage(ProviderIcon.image(for: provider), forSegment: index)
+            control.setImageScaling(.scaleProportionallyDown, forSegment: index)
+            control.setToolTip("Show \(provider == .codex ? "ChatGPT" : "Claude") accounts", forSegment: index)
         }
-        .pickerStyle(.segmented).labelsHidden().controlSize(.large)
-        .accessibilityLabel("Account provider")
+        control.setAccessibilityLabel("Account provider")
+        return control
+    }
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        control.selectedSegment = selection == .codex ? 0 : 1
+    }
+    @MainActor final class Coordinator: NSObject {
+        var selection: Binding<Provider>
+        init(selection: Binding<Provider>) { self.selection = selection }
+        @objc func selectProvider(_ sender: NSSegmentedControl) {
+            selection.wrappedValue = sender.selectedSegment == 0 ? .codex : .claude
+        }
     }
 }
 
 struct PanelHeader: View {
-    let model: AppModel
+    @Bindable var model: AppModel
 
     var body: some View {
         HStack(spacing: 12) {
-            ProviderIcon(provider: model.selectedProvider)
-            Text(model.isDemo ? "Acc Preview" : "Acc").font(.headline)
-            Spacer()
+            ProviderPicker(selection: $model.selectedProvider).frame(height: 28)
             Button { model.refreshAll() } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless).help("Check accounts and update usage")
                 .accessibilityLabel("Refresh accounts").disabled(model.busy || model.updating)
             AddAccountMenu(model: model)
-        }.padding(.horizontal, 16).padding(.top, 14).padding(.bottom, 10)
+        }.padding(.horizontal, 14).padding(.vertical, 10)
     }
 }
 
@@ -210,19 +233,16 @@ struct PanelFooter: View {
                 Button { model.openAccounts?() } label: { Image(systemName: "macwindow") }
                     .buttonStyle(.borderless).help("Open Accounts window").accessibilityLabel("Open Accounts window")
                 Menu {
-                    Button("Settings…") { model.openSettings?() }.keyboardShortcut(",")
+                    SettingsLink { Text("Settings…") }.keyboardShortcut(",")
                     Divider()
                     Button("Quit Acc") { NSApp.terminate(nil) }.keyboardShortcut("q")
                 } label: { Image(systemName: "gearshape") }
                 .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("App options")
-            } else {
-                Button { model.openSettings?() } label: { Image(systemName: "gearshape") }
-                    .buttonStyle(.borderless).help("Settings").accessibilityLabel("Settings")
             }
         }
         .help(model.lastMaintenanceAt.map { "Last checked \($0.formatted(date: .abbreviated, time: .shortened)). Checks every minute and after wake or reconnect." }
             ?? "Saved accounts are checked every minute and after wake or reconnect.")
-        .padding(.horizontal, 16).padding(.vertical, 12)
+        .padding(.horizontal, 14).padding(.vertical, 8)
     }
 }
 
@@ -232,11 +252,11 @@ struct PanelResizeHandle: View {
 
     var body: some View {
         Capsule().fill(.tertiary).frame(width: 32, height: 3)
-            .frame(maxWidth: .infinity).frame(height: 13).contentShape(Rectangle())
+            .frame(maxWidth: .infinity).frame(height: 11).contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { value in
                     if startingHeight == nil { startingHeight = model.panelHeight }
-                    model.resizePanel?((startingHeight ?? 580) + value.translation.height)
+                    model.resizePanel?((startingHeight ?? 430) + value.translation.height)
                 }.onEnded { _ in startingHeight = nil })
             .onHover { hovering in if hovering { NSCursor.resizeUpDown.push() } else { NSCursor.pop() } }
             .help("Drag to resize the panel").accessibilityLabel("Panel height")
@@ -248,9 +268,8 @@ struct PanelResizeHandle: View {
 
 private struct AccountCard: ViewModifier {
     func body(content: Content) -> some View {
-        content.padding(14).frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(nsColor: .controlBackgroundColor), in: RoundedRectangle(cornerRadius: 10))
-            .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color(nsColor: .separatorColor).opacity(0.4), lineWidth: 0.5))
+        content.padding(.horizontal, 14).padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 

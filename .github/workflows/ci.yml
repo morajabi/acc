@@ -22,10 +22,12 @@ jobs:
       ACC_SIGN_IDENTITY: "-"
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
       - name: Toolchain
         run: swift --version
       - name: Core tests
-        run: swift test
+        run: swift test --jobs 3
       - name: Build and install app
         run: ./scripts/build-app.sh
       - name: Offline CLI workflows
@@ -36,9 +38,14 @@ jobs:
           plutil -lint /Applications/Acc.app/Contents/Info.plist
           cmp dist/Acc.app/Contents/MacOS/AccMenuBar /Applications/Acc.app/Contents/MacOS/AccMenuBar
       - name: Package build
-        run: tar -czf dist/Acc-macos-arm64.tar.gz -C dist Acc.app acc
+        run: |
+          mkdir -p dist/ci
+          ditto dist/Acc.app dist/ci/Acc.app
+          cp dist/acc dist/ci/acc
+          ditto -c -k --sequesterRsrc dist/ci dist/Acc-macos-arm64.zip
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: Acc-macos-arm64
-          path: dist/Acc-macos-arm64.tar.gz
+          path: dist/Acc-macos-arm64.zip
+          if-no-files-found: error
           retention-days: 14

@@ -22,7 +22,7 @@ import Testing
     #expect(nineDays.renewalDate(preferences: preferences) == testNow.addingTimeInterval(4 * 86400))
     let short = try codex(expires: testNow.addingTimeInterval(7200))
     #expect(short.renewalDate(preferences: preferences) == testNow.addingTimeInterval(3600))
-    #expect(try claude().renewalDate(preferences: preferences) == testNow.addingTimeInterval(6600))
+    #expect(try claude().renewalDate(preferences: preferences) == testNow.addingTimeInterval(3600))
 }
 
 @Test func maximumAgeRenewsInactiveAccountsWithUsageDisabledAndPersistsHistory() async throws {

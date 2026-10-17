@@ -32,7 +32,7 @@ struct AccCLI {
         if !args.isEmpty { args.removeFirst() }
         switch command {
         case "help", "--help", "-h": print(help)
-        case "version", "--version": print("acc 0.1.2")
+        case "version", "--version": print("acc 0.2.0")
         case "list":
             try requireEmpty(args)
             try output(await service.accounts(), json: json)
@@ -191,7 +191,7 @@ struct AccCLI {
         guard ["on", "off"].contains(value) else { throw AccError.invalidArgument("Choose on or off.") }; return value == "on"
     }
     static let help = """
-    Acc 0.1 — Codex and Claude accounts
+    Acc 0.2 — Codex and Claude accounts
 
       acc list [--json]
       acc authorize <codex|claude>         Allow macOS Keychain access interactively
@@ -214,7 +214,7 @@ struct AccCLI {
       acc maintain                    Refresh due tokens and usage once
       acc watch                       Keep accounts fresh while this process runs
       acc settings [--usage on|off] [--keep-fresh on|off]
-                   [--renew-days 5] [--codex-lead-hours 120] [--claude-lead-minutes 10]
+                   [--renew-days 5] [--codex-lead-hours 120] [--claude-lead-minutes 60]
                    [--renew-without-native on|off] [--retry-uncertain on|off]
 
     Global: --store <directory> (or ACC_HOME), --json (accounts, pending sign-ins, or settings).

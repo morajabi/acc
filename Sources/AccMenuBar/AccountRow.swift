@@ -11,15 +11,16 @@ struct AccountRow: View {
     @State private var name = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(account.label).font(.headline).lineLimit(1).help(account.label)
-                    Text(account.subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    if account.isActive {
-                        Label("Active", systemImage: "checkmark.circle.fill")
-                            .font(.caption.weight(.medium)).foregroundStyle(.green)
-                    }
+                    HStack(spacing: 6) {
+                        if !account.subtitle.isEmpty { Text(account.subtitle).lineLimit(1) }
+                        if account.isActive {
+                            Label("Active", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                        }
+                    }.font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
                 if !account.isActive {
@@ -47,17 +48,13 @@ struct AccountRow: View {
                     .accessibilityLabel("Actions for \(account.label)")
             }
             if model.preferences.showUsage {
-                UsageSection(usage: account.usage, stale: account.message != nil || account.isPaused == true, expanded: account.isActive)
+                UsageSection(usage: account.usage, stale: account.usageMessage != nil || account.isPaused == true, expanded: account.isActive)
             }
-            Divider()
             AuthenticationStatus(account: account, keepFresh: model.preferences.keepFresh,
                 retryUncertain: model.preferences.retryUncertainRefresh)
             if account.isPaused == true {
-                HStack {
-                    Text("Detached · Automatic updates paused").font(.caption).foregroundStyle(.secondary)
-                    Spacer(minLength: 4)
-                    Button("Resume") { model.setPaused(account, false) }.controlSize(.small).disabled(model.busy)
-                }
+                Button("Resume Management") { model.setPaused(account, false) }
+                    .controlSize(.small).disabled(model.busy)
             } else if let message = account.message {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(message).font(.caption).foregroundStyle(.orange).textSelection(.enabled)

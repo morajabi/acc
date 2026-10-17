@@ -4,7 +4,9 @@ Acc is a macOS app, a CLI, and an independent Swift core. Use macOS 14 or later
 and Swift 6.2 or later. There are no third-party package dependencies.
 
 ```sh
-swift test
+git clone https://github.com/morajabi/acc.git
+cd acc
+swift test --jobs 2
 ./scripts/build-app.sh
 python3 scripts/smoke-test.py
 ./scripts/preview-app.sh
@@ -17,8 +19,16 @@ changes are in memory; Help → Reset Preview Accounts restores the fixtures.
 
 Build incrementally and only when code changes need verification. The app build
 defaults to two jobs to reduce local load; set `ACC_BUILD_JOBS=1` for the lowest
-concurrency. Prefer CI for repeat full builds and avoid running `swift test` and
-`swift build` concurrently against the same checkout.
+concurrency. Prefer CI for full builds and avoid running `swift test` and
+`swift build` concurrently against the same checkout. Push a branch and open a
+pull request to run the suite on GitHub. The CI run provides an installable app
+artifact for testing without compiling on your Mac.
+
+`build-app.sh` uses the single available Developer ID identity, or ad-hoc signing
+when none or several are available. Set `ACC_SIGN_IDENTITY` to select one (`-`
+means ad-hoc). Stable signing preserves Keychain trust across updates. Local
+builds are not notarized automatically. Use `ACC_UNIVERSAL=1` for a universal
+Apple silicon/Intel build; leave this heavy build to CI.
 
 For layout checks in both appearances:
 
@@ -44,3 +54,5 @@ dark appearance and empty, pending, paused, stale, and sign-in-required states.
 Keep pull requests focused and describe the behavior changed and checks run.
 Do not attach real auth files, raw HTTP responses, account exports, or screenshots
 of private accounts. See [security reporting](SECURITY.md) for sensitive issues.
+
+Maintainers: [release workflow and signing](docs/RELEASING.md).

@@ -36,7 +36,17 @@ public struct UsageSnapshot: Codable, Equatable, Sendable {
     public var plan: String?
     public var fiveHour: UsageWindow? { windows.first { $0.id == "fiveHour" } }
     public var weekly: UsageWindow? { windows.first { $0.id == "weekly" } }
-    public func isStale(at now: Date = Date()) -> Bool { now.timeIntervalSince(fetchedAt) > 600 }
+    /// A passed reset invalidates the old measurement; it does not prove that the
+    /// provider reset the allowance to 100 percent.
+    public func isStale(at now: Date = Date()) -> Bool {
+        now.timeIntervalSince(fetchedAt) > 600 || crossedReset(at: now)
+    }
+    public func needsRefresh(at now: Date = Date(), interval: TimeInterval) -> Bool {
+        now.timeIntervalSince(fetchedAt) >= interval || crossedReset(at: now)
+    }
+    private func crossedReset(at now: Date) -> Bool {
+        windows.contains { $0.resetsAt.map { $0 > fetchedAt && $0 <= now } ?? false }
+    }
     public init(windows: [UsageWindow], fetchedAt: Date, plan: String? = nil) {
         self.windows = windows; self.fetchedAt = fetchedAt; self.plan = plan
     }
@@ -55,6 +65,7 @@ public struct AccountSummary: Codable, Identifiable, Equatable, Sendable {
     public var health: AccountHealth
     public var message: String?
     public var usage: UsageSnapshot?
+    public var usageMessage: String?
     public var nextRetryAt: Date?
     public var isPaused: Bool?
     public var lastCheckedAt: Date?
@@ -102,16 +113,19 @@ public struct Preferences: Codable, Equatable, Sendable {
     public var keepFresh = true
     public var showUsage = true
     public var usageIntervalSeconds: TimeInterval = 300
-    public var refreshBeforeExpirySeconds: TimeInterval = 600
-    /// Codex Auth Guard's early renewal margin. Claude keeps the shorter margin above.
+    /// Leave room for transient failures before Claude's short-lived token expires.
+    public var refreshBeforeExpirySeconds: TimeInterval = 3600
+    /// Codex Auth Guard's early renewal margin.
     public var codexRefreshBeforeExpirySeconds: TimeInterval = 120 * 3600
     public var maximumRefreshIntervalSeconds: TimeInterval = 5 * 86400
     public var refreshWhenNativeUnavailable = true
     public var retryUncertainRefresh = false
+    private var renewalDefaultsVersion = 2
     public init() {}
     private enum CodingKeys: String, CodingKey {
         case keepFresh, showUsage, usageIntervalSeconds, refreshBeforeExpirySeconds
         case codexRefreshBeforeExpirySeconds, maximumRefreshIntervalSeconds, refreshWhenNativeUnavailable, retryUncertainRefresh
+        case renewalDefaultsVersion
     }
     public init(from decoder: any Decoder) throws {
         self.init()
@@ -120,6 +134,12 @@ public struct Preferences: Codable, Equatable, Sendable {
         showUsage = try c.decodeIfPresent(Bool.self, forKey: .showUsage) ?? showUsage
         usageIntervalSeconds = try c.decodeIfPresent(Double.self, forKey: .usageIntervalSeconds) ?? usageIntervalSeconds
         refreshBeforeExpirySeconds = try c.decodeIfPresent(Double.self, forKey: .refreshBeforeExpirySeconds) ?? refreshBeforeExpirySeconds
+        // Old vaults did not record whether the ten-minute default was explicitly
+        // chosen. Upgrade that legacy default once; preserve custom values and all
+        // choices made after this version, including an explicit ten minutes.
+        if !c.contains(.renewalDefaultsVersion), refreshBeforeExpirySeconds == 600 {
+            refreshBeforeExpirySeconds = 3600
+        }
         codexRefreshBeforeExpirySeconds = try c.decodeIfPresent(Double.self, forKey: .codexRefreshBeforeExpirySeconds) ?? codexRefreshBeforeExpirySeconds
         maximumRefreshIntervalSeconds = try c.decodeIfPresent(Double.self, forKey: .maximumRefreshIntervalSeconds) ?? maximumRefreshIntervalSeconds
         refreshWhenNativeUnavailable = try c.decodeIfPresent(Bool.self, forKey: .refreshWhenNativeUnavailable) ?? refreshWhenNativeUnavailable
@@ -176,6 +196,7 @@ struct AccountRecord: Codable, Sendable {
     var usageMessage: String?
     var usageRetryAt: Date?
     var usageFailures: Int?
+    var usageRetryOnConnectivity: Bool?
     var isPaused: Bool?
     var lastCheckedAt: Date?
     var lastRefreshAttemptAt: Date?
@@ -187,6 +208,13 @@ struct AccountRecord: Codable, Sendable {
 
     func renewalDate(_ preferences: Preferences) -> Date {
         credential.renewalDate(preferences: preferences, lastRenewal: lastRefreshedAt, firstObservedAt: addedAt)
+    }
+
+    func usageIsDue(at now: Date, interval: TimeInterval, connectivityRestored: Bool) -> Bool {
+        if let retry = usageRetryAt {
+            return now >= retry || (connectivityRestored && usageRetryOnConnectivity == true)
+        }
+        return usage?.needsRefresh(at: now, interval: interval) ?? true
     }
 }
 

@@ -43,6 +43,7 @@ public actor AccountService {
                 message: record.message ?? activeErrors[credential.provider] ?? record.syncMessage ?? record.usageMessage, usage: record.usage,
                 nextRetryAt: [record.nextRetryAt, record.usageRetryAt].compactMap { $0 }.min(), isPaused: record.isPaused)
             summary.nextRenewalRetryAt = record.nextRetryAt
+            summary.usageMessage = record.usageMessage
             summary.lastCheckedAt = record.lastCheckedAt
             summary.lastRefreshAttemptAt = record.lastRefreshAttemptAt
             summary.lastRefreshedAt = record.lastRefreshedAt ?? credential.refreshedAt
@@ -219,10 +220,24 @@ public actor AccountService {
         try await update(i, vault: &vault, now: now, force: force, includeUsage: includeUsage ?? vault.preferences.showUsage)
     }
     /// One maintenance pass. Suitable for a menu-bar timer or a CLI scheduler.
-    public func maintain(now: Date = Date(), connectivityRestored: Bool = false) async throws {
+    public func maintain(now: Date = Date(), connectivityRestored: Bool = false,
+                         foregroundUsageInterval: TimeInterval? = nil, foregroundUsageProvider: Provider? = nil) async throws {
         let lock = try store.lock(); defer { withExtendedLifetime(lock) {} }
         var vault = try store.load()
-        for i in vault.accounts.indices {
+        var nativeLogins: [Provider: ActiveSnapshot] = [:]
+        for provider in Set(vault.accounts.map { $0.credential.provider }) {
+            nativeLogins[provider] = try? readActive(provider, in: vault)
+        }
+        let activeIDs = Set(vault.accounts.filter { record in
+            nativeLogins[record.credential.provider].map { matches(record.credential, $0.credential) } == true
+        }.map(\.id))
+        let ordered = vault.accounts.indices.sorted {
+            let firstActive = activeIDs.contains(vault.accounts[$0].id)
+            let secondActive = activeIDs.contains(vault.accounts[$1].id)
+            return firstActive != secondActive ? firstActive : $0 < $1
+        }
+        // Slow alternate accounts should not delay the meters the user sees.
+        for i in ordered {
             try Task.checkCancellation()
             if vault.accounts[i].isPaused == true { continue }
             // Reconcile before retry deadlines: a new CLI login can recover immediately.
@@ -231,16 +246,25 @@ public actor AccountService {
                 try recoverInterruptedAttempt(i, vault: &vault, now: now)
                 let native = try maintenanceNative(i, vault: &vault)
                 try reconcile(i, native: native, vault: &vault)
-                if vault.accounts[i].health == .needsSignIn { continue }
-                if vault.accounts[i].health == .uncertain && !vault.preferences.retryUncertainRefresh { continue }
                 if connectivityRestored, vault.accounts[i].retryOnConnectivity == true { vault.accounts[i].nextRetryAt = nil }
-                guard vault.accounts[i].nextRetryAt.map({ $0 <= now }) ?? true else { continue }
+                let canRenew = vault.accounts[i].health != .needsSignIn
+                    && (vault.accounts[i].health != .uncertain || vault.preferences.retryUncertainRefresh)
+                    && (vault.accounts[i].nextRetryAt.map { $0 <= now } ?? true)
+                let isActive = native.map { matches(vault.accounts[i].credential, $0.credential) } == true
+                // Active usage is visible in the menu bar even when the panel is
+                // closed. Opening the app asks for a fresher view, without
+                // bypassing a provider's retry deadline.
+                let foregroundInterval = foregroundUsageProvider == nil || foregroundUsageProvider == vault.accounts[i].credential.provider
+                    ? foregroundUsageInterval : nil
+                let interval = min(vault.preferences.usageIntervalSeconds,
+                    foregroundInterval.map { max(30, $0) } ?? (isActive ? 120 : .infinity))
                 let usageDue = vault.preferences.showUsage
-                    && (vault.accounts[i].usageRetryAt.map { $0 <= now } ?? true)
-                    && now.timeIntervalSince(vault.accounts[i].lastUsageAttempt ?? .distantPast) >= vault.preferences.usageIntervalSeconds
-                let refreshDue = vault.preferences.keepFresh && (vault.accounts[i].renewalDate(vault.preferences) <= now
+                    && vault.accounts[i].health != .needsSignIn
+                    && (vault.accounts[i].health != .uncertain || vault.preferences.retryUncertainRefresh)
+                    && vault.accounts[i].usageIsDue(at: now, interval: interval, connectivityRestored: connectivityRestored)
+                let refreshDue = canRenew && vault.preferences.keepFresh && (vault.accounts[i].renewalDate(vault.preferences) <= now
                     || (vault.accounts[i].health == .uncertain && vault.preferences.retryUncertainRefresh))
-                let pendingPublication = vault.preferences.keepFresh && native.map {
+                let pendingPublication = canRenew && vault.preferences.keepFresh && native.map {
                     matches(vault.accounts[i].credential, $0.credential)
                         && (vault.accounts[i].pendingNativePublication == true
                             || ($0.fingerprint != vault.accounts[i].credential.fingerprint
@@ -249,7 +273,7 @@ public actor AccountService {
                 if usageDue || refreshDue || pendingPublication {
                     do {
                         try await update(i, vault: &vault, now: now, force: false, includeUsage: usageDue,
-                            allowRefresh: vault.preferences.keepFresh)
+                            allowRefresh: canRenew && vault.preferences.keepFresh)
                     } catch { if error is CancellationError { throw error } }
                 }
             } catch {
@@ -268,7 +292,9 @@ public actor AccountService {
             let native = try maintenanceNative(i, vault: &vault)
             try reconcile(i, native: native, vault: &vault)
             if allowRefresh { refreshed = try await refreshRecord(i, vault: &vault, now: now, force: force || vault.accounts[i].health == .needsSignIn || (vault.accounts[i].health == .uncertain && vault.preferences.retryUncertainRefresh), native: native) }
-            if allowRefresh || ![.uncertain, .needsSignIn].contains(vault.accounts[i].health) { clearFailure(i, vault: &vault) }
+            // A successful usage-only check cannot clear a failed renewal or its
+            // retry deadline. The two operations have independent health.
+            if allowRefresh { clearFailure(i, vault: &vault) }
             try store.save(vault)
         } catch {
             recordFailure(error, at: i, vault: &vault, now: now); try store.save(vault); throw error
@@ -292,7 +318,7 @@ public actor AccountService {
             try store.save(vault)
         } catch {
             // Usage permission/rate-limit errors must not disable token maintenance.
-            if vault.accounts[i].message == nil { recordUsageFailure(error, at: i, vault: &vault, now: now) }
+            if vault.accounts[i].message == nil || !allowRefresh { recordUsageFailure(error, at: i, vault: &vault, now: now) }
             try store.save(vault)
             throw error
         }
@@ -423,11 +449,13 @@ public actor AccountService {
     }
     private func clearUsageFailure(_ i: Int, vault: inout Vault) {
         vault.accounts[i].usageMessage = nil; vault.accounts[i].usageRetryAt = nil; vault.accounts[i].usageFailures = nil
+        vault.accounts[i].usageRetryOnConnectivity = nil
     }
     private func recordUsageFailure(_ error: Error, at i: Int, vault: inout Vault, now: Date) {
         guard !(error is CancellationError) else { return }
         let failures = (vault.accounts[i].usageFailures ?? 0) + 1
         vault.accounts[i].usageFailures = failures
+        vault.accounts[i].usageRetryOnConnectivity = error as? AccError == .network || error as? AccError == .requestNotSent
         vault.accounts[i].usageMessage = error as? AccError == .signInRequired
             ? "Usage access was rejected. Sign in again if it continues." : safeMessage(error)
         if case let .rateLimited(until) = error as? AccError { vault.accounts[i].usageRetryAt = until }

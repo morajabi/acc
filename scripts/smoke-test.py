@@ -133,5 +133,5 @@ with tempfile.TemporaryDirectory(prefix='acc-cli-smoke-') as directory:
     assert (root / 'codex' / 'config.toml').read_text() == 'model = "fixture-model"\n'
     assert (root / 'acc' / 'accounts.json').stat().st_mode & 0o777 == 0o600
     assert (root / 'acc').stat().st_mode & 0o777 == 0o700
-    assert 'Acc 0.1' in invoke('help', json_output=False)
+    assert 'Codex and Claude accounts' in invoke('help', json_output=False)
 print('CLI smoke passed: discovery, import, switch, detach/resume, replacement, browser-process login, pending recovery/discard, cancellation, watch shutdown, removal, sign-out, redaction, permissions.')

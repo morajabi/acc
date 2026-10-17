@@ -10,7 +10,7 @@ enum DemoAccounts {
              "identity": ["userID": "demo-" + provider, "email": "hello@example.test", "plan": plan],
              "expiresAt": now + (provider == "claude" ? 28800 : 6 * 86400), "lastRefreshedAt": now - 86400,
              "lastCheckedAt": now - 20, "lastRefreshAttemptAt": now - 86400,
-             "nextRefreshAt": now + (provider == "claude" ? 28200 : 86400), "renewalHealth": "ready", "isActive": active, "health": "ready",
+             "nextRefreshAt": now + (provider == "claude" ? 25200 : 86400), "renewalHealth": "ready", "isActive": active, "health": "ready",
              "usage": ["fetchedAt": now, "windows": [
                 ["id": "fiveHour", "title": "5 hours", "usedPercent": five, "resetsAt": now + 7200, "durationSeconds": 18000],
                 ["id": "weekly", "title": "Weekly", "usedPercent": week, "resetsAt": now + 216000, "durationSeconds": 604800],

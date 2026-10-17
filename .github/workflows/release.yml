@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to release (for example v0.2.0)
+        required: true
+        type: string
+      draft:
+        description: Leave the completed release as a draft
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 50
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
+      ACC_BUILD_JOBS: "3"
+      ACC_UNIVERSAL: "1"
+      ACC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ inputs.tag || github.ref_name }}
+          persist-credentials: false
+      - name: Validate version tag
+        run: |
+          python3 - <<'PY'
+          import os, plistlib, re, subprocess
+          tag = os.environ['ACC_RELEASE_TAG']
+          if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag):
+              raise SystemExit('Use a stable version tag such as v0.2.0.')
+          version = plistlib.load(open('Resources/Info.plist', 'rb'))['CFBundleShortVersionString']
+          if tag != f'v{version}':
+              raise SystemExit('Tag and app version do not match.')
+          subprocess.run(['git', 'show-ref', '--verify', f'refs/tags/{tag}'], check=True)
+          def revision(value):
+              return subprocess.check_output(['git', 'rev-parse', value], text=True).strip()
+          if revision('HEAD') != revision(f'refs/tags/{tag}^{{commit}}'):
+              raise SystemExit('The checked-out commit does not match the release tag.')
+          PY
+      - name: Core tests
+        run: swift test --jobs 3
+      - name: Prepare optional signing and notarization
+        env:
+          ACC_CERTIFICATE_P12: ${{ secrets.ACC_CERTIFICATE_P12 }}
+          ACC_CERTIFICATE_PASSWORD: ${{ secrets.ACC_CERTIFICATE_PASSWORD }}
+          ACC_APPLE_ID: ${{ secrets.ACC_APPLE_ID }}
+          ACC_APPLE_APP_PASSWORD: ${{ secrets.ACC_APPLE_APP_PASSWORD }}
+          ACC_APPLE_TEAM_ID: ${{ secrets.ACC_APPLE_TEAM_ID }}
+        run: ./scripts/prepare-ci-signing.sh
+      - name: Build and install universal app
+        run: ./scripts/build-app.sh
+      - name: Offline CLI workflows
+        run: python3 scripts/smoke-test.py
+      - name: Verify installed bundle and architectures
+        run: |
+          codesign --verify --deep --strict /Applications/Acc.app
+          plutil -lint /Applications/Acc.app/Contents/Info.plist
+          xcrun lipo -verify_arch arm64 x86_64 dist/Acc.app/Contents/MacOS/AccMenuBar
+          xcrun lipo -verify_arch arm64 x86_64 dist/acc
+          cmp dist/Acc.app/Contents/MacOS/AccMenuBar /Applications/Acc.app/Contents/MacOS/AccMenuBar
+      - name: Package and optionally notarize
+        run: ./scripts/package-release.sh
+      - name: Prepare installation notes
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          notes = ['## Download', '',
+              'Download **Acc-macOS.zip**, unzip it, and move **Acc.app** to **Applications**. '
+              'Requires macOS 14 or later; one download supports Apple silicon and Intel Macs.', '',
+              'Quit an older copy before replacing it. Your saved accounts stay in place.', '']
+          if os.environ.get('ACC_NOTARY_PROFILE'):
+              notes += ['This release is Developer ID signed and notarized by Apple.']
+          elif os.environ.get('ACC_SIGN_IDENTITY') != '-':
+              notes += ['This release is Developer ID signed, but **not notarized**. '
+                  'If macOS blocks opening it, use **System Settings → Privacy & Security → Open Anyway** '
+                  'after trying to launch it.']
+          else:
+              notes += ['This release is **ad-hoc signed and not notarized**. '
+                  'If macOS blocks opening it, use **System Settings → Privacy & Security → Open Anyway** '
+                  'after trying to launch it.']
+          notes += ['', 'SHA-256 checksums are included in **SHA256SUMS.txt**.', '',
+              '[Getting started](https://github.com/morajabi/acc#readme) · '
+              '[Authentication and recovery](https://github.com/morajabi/acc/blob/main/docs/AUTHENTICATION.md)']
+          Path('dist/release/release-notes.md').write_text('\n'.join(notes) + '\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Acc-release
+          path: |
+            dist/release/Acc-macOS.zip
+            dist/release/SHA256SUMS.txt
+            dist/release/release-notes.md
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove temporary signing material
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/acc-signing.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/acc-signing.p12"
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      ACC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      ACC_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: Acc-release
+          path: release
+      - name: Publish verified assets
+        run: |
+          cd release
+          sha256sum -c SHA256SUMS.txt
+          if gh release view "$ACC_RELEASE_TAG" --json isDraft --jq .isDraft > is-draft.txt 2>/dev/null; then
+            if [ "$(cat is-draft.txt)" != true ]; then
+              echo 'This release is already public; publish a new version instead of replacing its assets.' >&2
+              exit 1
+            fi
+            gh release upload "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt --clobber
+            gh release edit "$ACC_RELEASE_TAG" --notes-file release-notes.md
+          else
+            gh release create "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt \
+              --verify-tag --draft --title "Acc ${ACC_RELEASE_TAG#v}" \
+              --notes-file release-notes.md --generate-notes
+          fi
+          if [ "$ACC_DRAFT" != true ]; then
+            gh release edit "$ACC_RELEASE_TAG" --draft=false --latest
+          fi

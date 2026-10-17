@@ -59,6 +59,7 @@ final class MemoryActive: ActiveCredentialStore, @unchecked Sendable {
 actor TestClient: ProviderClient {
     var refreshCalls = 0
     var usageCalls = 0
+    var usageAccounts: [String] = []
     var refreshError: AccError?
     var usageError: AccError?
     var onRefresh: (@Sendable () -> Void)?
@@ -79,8 +80,11 @@ actor TestClient: ProviderClient {
     }
     func usage(_ credential: Credential, now: Date) async throws -> UsageSnapshot {
         usageCalls += 1
+        usageAccounts.append(credential.identity.userID)
         if let usageError { throw usageError }
-        return usageSnapshot()
+        var snapshot = usageSnapshot()
+        snapshot.fetchedAt = now
+        return snapshot
     }
 }
 

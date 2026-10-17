@@ -1,8 +1,12 @@
 #!/bin/zsh
 set -euo pipefail
 cd "${0:A:h:h}"
-swift build -c release --jobs "${ACC_BUILD_JOBS:-2}"
-acc_bin_dir=$(swift build -c release --show-bin-path)
+acc_build_flags=(-c release --jobs "${ACC_BUILD_JOBS:-2}")
+if [[ "${ACC_UNIVERSAL:-0}" == 1 ]]; then
+    acc_build_flags+=(--arch arm64 --arch x86_64)
+fi
+swift build "${acc_build_flags[@]}"
+acc_bin_dir=$(swift build "${acc_build_flags[@]}" --show-bin-path)
 mkdir -p "$PWD/dist"
 acc_stage=$(mktemp -d "$PWD/dist/.build.XXXXXX")
 trap 'rm -rf "$acc_stage"' EXIT
@@ -28,8 +32,12 @@ print(identities[0] if len(identities) == 1 else '-')
 PY
     )
 fi
-codesign --force --sign "$acc_sign_identity" "$acc_bundle"
-codesign --force --sign "$acc_sign_identity" --identifier dev.mo.acc.cli "$acc_stage/acc"
+acc_sign_flags=(--force --sign "$acc_sign_identity")
+if [[ "$acc_sign_identity" != - ]]; then
+    acc_sign_flags+=(--options runtime --timestamp)
+fi
+codesign "${acc_sign_flags[@]}" "$acc_bundle"
+codesign "${acc_sign_flags[@]}" --identifier dev.mo.acc.cli "$acc_stage/acc"
 # Stage a complete signed bundle; never truncate an executable that may be running.
 python3 - "$acc_stage" "$PWD/dist" <<'PY'
 import os

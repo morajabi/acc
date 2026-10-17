@@ -16,6 +16,8 @@ final class AppModel {
     var pending: [PendingSignIn] = []
     var observedUsage: [Provider: UsageSnapshot] = [:]
     var observedErrors: [Provider: String] = [:]
+    /// Keeps menu-meter age/reset decisions observable even when no request ends.
+    var usageClock = Date()
     var preferences = Preferences()
     var selectedProvider: Provider = .codex
     var message: String?
@@ -29,7 +31,6 @@ final class AppModel {
     var lastMaintenanceAt: Date?
     var loginStatusMessage: String?
     var openAccounts: (() -> Void)?
-    var openSettings: (() -> Void)?
     var resizePanel: ((CGFloat) -> Void)?
     var changePresentation: (() -> Void)?
     var presentation: AppPresentation
@@ -39,12 +40,16 @@ final class AppModel {
     private let service = AccountService()
     private var loginTask: Task<Void, Never>?
     private var maintenance: Task<Void, Never>?
+    private var clockTask: Task<Void, Never>?
     private var background: Task<Void, Never>?
     private var wakeObserver: NSObjectProtocol?
     private let networkMonitor = NWPathMonitor()
     private var networkWasAvailable = false
     private let scheduler = NSBackgroundActivityScheduler(identifier: "dev.mo.acc.credential-maintenance")
     private var observedRetryAt: [Provider: Date] = [:]
+    private var observedRetryOnConnectivity: Set<Provider> = []
+    private var foregroundCheckPending = false
+    private var connectivityCheckPending = false
 
     var selectedAccounts: [AccountSummary] {
         accounts.filter { $0.provider == selectedProvider }.sorted {
@@ -55,12 +60,17 @@ final class AppModel {
     var selectedCurrent: CurrentLogin? { current.first { $0.provider == selectedProvider } }
     var selectedPending: [PendingSignIn] { pending.filter { $0.provider == selectedProvider } }
     func activeUsage(_ provider: Provider) -> UsageSnapshot? {
+        _ = usageClock
         if let account = accounts.first(where: { $0.provider == provider && $0.isActive }) {
-            guard account.isPaused != true, account.message == nil, let usage = account.usage, !usage.isStale() else { return nil }
-            return usage
+            return account.usage
         }
-        guard let usage = observedUsage[provider], !usage.isStale(), observedErrors[provider] == nil else { return nil }
-        return usage
+        return observedUsage[provider]
+    }
+    func activeUsageIsStale(_ provider: Provider) -> Bool {
+        if let account = accounts.first(where: { $0.provider == provider && $0.isActive }) {
+            return account.isPaused == true || account.usageMessage != nil || account.usage?.isStale(at: usageClock) != false
+        }
+        return observedErrors[provider] != nil || observedUsage[provider]?.isStale(at: usageClock) != false
     }
     init(demo: Bool = CommandLine.arguments.contains("--demo")) {
         isDemo = demo
@@ -95,6 +105,12 @@ final class AppModel {
                 completion(.finished)
             }
         }
+        clockTask = Task { [weak self] in
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+                self?.usageClock = Date()
+            }
+        }
         maintenance = Task { [weak self] in
             // Show local state before any provider request.
             do { try await self?.reload() } catch { self?.message = safeMessage(error) }
@@ -111,47 +127,77 @@ final class AppModel {
         let next = try await service.currentLogins()
         for login in next where current.first(where: { $0.provider == login.provider })?.revision != login.revision {
             observedUsage[login.provider] = nil; observedErrors[login.provider] = nil; observedRetryAt[login.provider] = nil
+            observedRetryOnConnectivity.remove(login.provider)
         }
         current = next
         pending = try await SignInService(accounts: service).pendingSignIns()
     }
-    private func tick(connectivityRestored: Bool = false) async {
+    /// Presentation is read-mostly: it follows normal renewal policy and asks
+    /// only for usage older than thirty seconds. Repeated opens are coalesced.
+    func refreshWhenPresented() {
+        guard !isDemo else { return }
+        Task { await tick(foreground: true) }
+    }
+    private func tick(connectivityRestored: Bool = false, foreground: Bool = false) async {
+        usageClock = Date()
+        foregroundCheckPending = foregroundCheckPending || foreground
+        connectivityCheckPending = connectivityCheckPending || connectivityRestored
         // Browser consent can take minutes; it must not pause other accounts.
         guard !isQuitting, (!busy || signingIn != nil), background == nil else { return }
         let task = Task {
             updating = true
             let activity = ProcessInfo.processInfo.beginActivity(options: [.userInitiatedAllowingIdleSystemSleep, .suddenTerminationDisabled, .automaticTerminationDisabled], reason: "Save scheduled credential renewals")
             defer { updating = false; ProcessInfo.processInfo.endActivity(activity) }
-            do {
-                try await reload()
-                try await service.maintain(connectivityRestored: connectivityRestored)
-                lastMaintenanceAt = Date()
-                maintenanceMessage = nil
-                try await reload()
-                try await refreshObservedUsage(force: false)
-            } catch AccError.busy { }
-            catch is CancellationError { }
-            catch { maintenanceMessage = safeMessage(error) }
+            repeat {
+                let foreground = foregroundCheckPending
+                let connectivityRestored = connectivityCheckPending
+                foregroundCheckPending = false; connectivityCheckPending = false
+                do {
+                    try await reload()
+                    try await service.maintain(connectivityRestored: connectivityRestored,
+                        foregroundUsageInterval: foreground ? 30 : nil, foregroundUsageProvider: selectedProvider)
+                    lastMaintenanceAt = Date()
+                    maintenanceMessage = nil
+                    try await reload()
+                    try await refreshObservedUsage(force: false, foreground: foreground, connectivityRestored: connectivityRestored)
+                } catch AccError.busy { }
+                catch is CancellationError { }
+                catch { maintenanceMessage = safeMessage(error) }
+                usageClock = Date()
+            } while !isQuitting && (!busy || signingIn != nil) && (foregroundCheckPending || connectivityCheckPending)
         }
         background = task
         await task.value
         background = nil
     }
-    private func refreshObservedUsage(force: Bool) async throws {
+    private func refreshObservedUsage(force: Bool, foreground: Bool = false, connectivityRestored: Bool = false) async throws {
         guard preferences.showUsage else { return }
         for login in current where login.identity != nil && login.savedAccountID == nil {
             try Task.checkCancellation()
             let provider = login.provider
-            if !force, let next = observedRetryAt[provider], next > Date() { continue }
+            let now = Date()
+            if !force {
+                if let retry = observedRetryAt[provider] {
+                    if retry > now && !(connectivityRestored && observedRetryOnConnectivity.contains(provider)) { continue }
+                } else if observedUsage[provider]?.needsRefresh(at: now,
+                    interval: min(preferences.usageIntervalSeconds, foreground && provider == selectedProvider ? 30 : 120)) == false { continue }
+            }
             do {
                 observedUsage[provider] = try await service.currentUsage(provider)
                 observedErrors[provider] = nil
-                observedRetryAt[provider] = Date().addingTimeInterval(preferences.usageIntervalSeconds)
+                observedRetryAt[provider] = nil
+                observedRetryOnConnectivity.remove(provider)
             } catch is CancellationError { throw CancellationError() }
             catch {
                 observedErrors[provider] = safeMessage(error)
+                if error as? AccError == .externalChange || error as? AccError == .signInRequired {
+                    observedUsage[provider] = nil
+                }
+                if error as? AccError == .network || error as? AccError == .requestNotSent {
+                    observedRetryOnConnectivity.insert(provider)
+                } else { observedRetryOnConnectivity.remove(provider) }
                 if case .rateLimited(let until) = error as? AccError { observedRetryAt[provider] = until }
-                else { observedRetryAt[provider] = Date().addingTimeInterval(300) }
+                else { observedRetryAt[provider] = Date().addingTimeInterval(60) }
             }
         }
     }
@@ -162,7 +208,7 @@ final class AppModel {
         let previous = background
         Task {
             await previous?.value
-            defer { busy = false; activityTitle = nil }
+            defer { busy = false; activityTitle = nil; refreshWhenPresented() }
             do { try await operation(service); try await reload(); notice = success }
             catch { message = safeMessage(error); try? await reload() }
         }
@@ -198,7 +244,7 @@ final class AppModel {
         let previous = background
         loginTask = Task {
             await previous?.value
-            defer { busy = false; signingIn = nil; loginTask = nil }
+            defer { busy = false; signingIn = nil; loginTask = nil; refreshWhenPresented() }
             do { _ = try await SignInService(accounts: service).signIn(provider, replacing: id) }
             catch is CancellationError { }
             catch { message = safeMessage(error) }

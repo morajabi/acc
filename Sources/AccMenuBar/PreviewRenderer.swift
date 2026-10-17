@@ -42,24 +42,35 @@ import AccCore
                     [{"id":"00000000-0000-0000-0000-000000000010","provider":"codex","createdAt":0}]
                     """.utf8))
                 }
-                try snapshot(AccountPanel(model: model, compact: state != "window"), size: NSSize(width: state == "window" ? 520 : 410, height: state == "short" ? 360 : state == "tall" ? 800 : 600),
-                    appearance: appearance, to: directory.appendingPathComponent("\(state)-\(theme).png"))
+                try snapshot(AccountPanel(model: model, compact: state != "window"), size: NSSize(width: state == "window" ? 440 : 380, height: state == "short" ? 320 : state == "tall" ? 740 : state == "claude" ? 320 : 430),
+                    appearance: appearance, material: state != "window", to: directory.appendingPathComponent("\(state)-\(theme).png"))
             }
-            try snapshot(AccSettings(model: AppModel(demo: true)), size: NSSize(width: 520, height: 540),
+            try snapshot(AccSettings(model: AppModel(demo: true)), size: NSSize(width: 480, height: 440),
                 appearance: appearance, to: directory.appendingPathComponent("settings-\(theme).png"))
         }
         print("Rendered 28 credential-free previews to \(directory.path)")
     }
-    private static func snapshot<V: View>(_ content: V, size: NSSize, appearance: NSAppearance, to url: URL) throws {
+    private static func snapshot<V: View>(_ content: V, size: NSSize, appearance: NSAppearance, material: Bool = false, to url: URL) throws {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
         let view = NSHostingView(rootView: content.environment(\.colorScheme, appearance.name == .darkAqua ? .dark : .light))
         window.appearance = appearance
         view.appearance = appearance
-        window.contentView = view
+        let surface: NSView
+        if material {
+            // Preview-only container uses the same system material supplied by
+            // the shipping NSPopover. The actual app has no custom background.
+            let effect = NSVisualEffectView(frame: NSRect(origin: .zero, size: size))
+            effect.material = .popover
+            effect.blendingMode = .behindWindow
+            effect.state = .active
+            surface = effect
+        } else { surface = NSView(frame: NSRect(origin: .zero, size: size)) }
+        surface.addSubview(view)
+        window.contentView = surface
         view.frame = NSRect(origin: .zero, size: size)
-        view.layoutSubtreeIfNeeded()
-        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw AccError.storage }
-        view.cacheDisplay(in: view.bounds, to: bitmap)
+        surface.layoutSubtreeIfNeeded()
+        guard let bitmap = surface.bitmapImageRepForCachingDisplay(in: surface.bounds) else { throw AccError.storage }
+        surface.cacheDisplay(in: surface.bounds, to: bitmap)
         guard let data = bitmap.representation(using: .png, properties: [:]) else { throw AccError.storage }
         try data.write(to: url)
     }

@@ -12,7 +12,7 @@ struct AuthenticationStatus: View {
             DisclosureGroup(isExpanded: $details) {
                 AuthenticationDetails(account: account).padding(.top, 8)
             } label: {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 2) {
                     if account.isPaused == true || !keepFresh {
                         Text("Automatic renewal paused").foregroundStyle(.secondary)
                     } else if account.renewalHealth == .uncertain {
@@ -21,16 +21,16 @@ struct AuthenticationStatus: View {
                     } else if account.renewalHealth == .needsSignIn {
                         Text("Sign in to resume renewal").foregroundStyle(.orange)
                     } else if let next = account.nextRefreshAt {
-                        if next <= context.date { Text("Renewal due · Checking automatically").foregroundStyle(.secondary) }
+                        if next <= context.date { Text("Renewal due · Checking").foregroundStyle(.secondary) }
                         else { Text("Renews in \(next, style: .relative)").foregroundStyle(.secondary) }
                     } else { Text("Automatic renewal").foregroundStyle(.secondary) }
                     if let expiry = account.expiresAt {
                         if expiry > context.date {
-                            Text("Access expires \(expiry, format: .dateTime.month(.abbreviated).day().hour().minute())")
+                            Text("Expires \(expiry, format: .dateTime.month(.abbreviated).day().hour().minute())")
                                 .foregroundStyle(.secondary)
                         } else { Text("Access token expired").foregroundStyle(.orange) }
-                    } else { Text("Access-token expiry unavailable").foregroundStyle(.secondary) }
-                }.font(.caption)
+                    } else { Text("Expiry unavailable").foregroundStyle(.secondary) }
+                }.font(.caption2)
             }.accessibilityLabel("Authentication details for \(account.label)")
         }
     }

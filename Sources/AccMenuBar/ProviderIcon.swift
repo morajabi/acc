@@ -1,5 +1,6 @@
 // Provider marks adapted from CodexBar (MIT); see docs/THIRD_PARTY_NOTICES.md.
 import SwiftUI
+import AppKit
 import AccCore
 
 enum ProviderPaths {
@@ -294,8 +295,19 @@ struct ProviderMark: Shape {
 
 struct ProviderIcon: View {
     let provider: Provider
+    @MainActor static func image(for provider: Provider, size: CGFloat = 20) -> NSImage {
+        let image = NSImage(size: NSSize(width: size, height: size), flipped: true) { rect in
+            guard let context = NSGraphicsContext.current?.cgContext else { return false }
+            context.setFillColor(NSColor.black.cgColor)
+            context.addPath(ProviderMark(provider: provider).path(in: rect).cgPath)
+            context.fillPath()
+            return true
+        }
+        image.isTemplate = true
+        return image
+    }
     var body: some View {
-        ProviderMark(provider: provider).fill(.primary).frame(width: 26, height: 26)
+        ProviderMark(provider: provider).fill(.primary).frame(width: 22, height: 22)
             .accessibilityLabel(provider == .codex ? "ChatGPT" : "Claude")
     }
 }
