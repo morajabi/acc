@@ -35,3 +35,10 @@ jobs:
           codesign --verify --deep --strict /Applications/Acc.app
           plutil -lint /Applications/Acc.app/Contents/Info.plist
           cmp dist/Acc.app/Contents/MacOS/AccMenuBar /Applications/Acc.app/Contents/MacOS/AccMenuBar
+      - name: Package build
+        run: tar -czf dist/Acc-macos-arm64.tar.gz -C dist Acc.app acc
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: Acc-macos-arm64
+          path: dist/Acc-macos-arm64.tar.gz
+          retention-days: 14

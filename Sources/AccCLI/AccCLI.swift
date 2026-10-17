@@ -10,7 +10,8 @@ struct AccCLI {
         signal(SIGINT, SIG_IGN); signal(SIGTERM, SIG_IGN)
         let signals = [SIGINT, SIGTERM].map { number in
             let source = DispatchSource.makeSignalSource(signal: number, queue: .global())
-            source.setEventHandler { operation.cancel() }
+            // This callback runs on a global Dispatch queue, not the main actor.
+            source.setEventHandler { @Sendable in operation.cancel() }
             source.resume()
             return source
         }

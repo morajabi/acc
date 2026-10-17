@@ -109,8 +109,8 @@ with tempfile.TemporaryDirectory(prefix='acc-cli-smoke-') as directory:
     assert (root / 'child.pid').exists(), 'Login child did not start'
     child_pid = int((root / 'child.pid').read_text())
     process.send_signal(signal.SIGINT)
-    process.communicate(timeout=8)
-    assert process.returncode == 130
+    output, error = process.communicate(timeout=8)
+    assert process.returncode == 130, ('login cancellation', process.returncode, output, error)
     try:
         os.kill(child_pid, 0)
         raise AssertionError('Cancelled login left a child process alive')
@@ -121,8 +121,8 @@ with tempfile.TemporaryDirectory(prefix='acc-cli-smoke-') as directory:
     watch = subprocess.Popen([str(binary), 'watch'], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     time.sleep(0.2)
     watch.terminate()
-    watch.communicate(timeout=5)
-    assert watch.returncode == 130
+    output, error = watch.communicate(timeout=5)
+    assert watch.returncode == 130, ('watch cancellation', watch.returncode, output, error)
     invoke('refresh', alice, '--unexpected', success=False)
     invoke('switch', 'missing-account', success=False)
     invoke('remove', bob)
