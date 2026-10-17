@@ -21,15 +21,15 @@ Codex requests use the public OAuth client ID and JSON refresh body used by Code
 | Add current login | Save the native OAuth credential, deduplicate by user and workspace, keep active login | Core tests and CLI smoke |
 | Import file | Parse native Codex/Claude JSON, identify Claude when local identity is absent, reject unsupported auth modes | Parser/profile/identity tests; CLI import and invalid-file paths |
 | Browser sign-in | Run the provider CLI in isolated config/credential directories with inherited auth overrides removed | Fake Codex and Claude subprocess tests; CLI smoke; official CLI arguments checked |
-| Cancel / timeout | Cancel owned subprocess, wait for exit, remove its isolated store; CLI handles SIGINT/SIGTERM | Task-cancellation, accelerated-timeout, and CLI signal/child-cleanup tests |
-| Complete a deferred sign-in | Keep a successful browser login when import fails; resume, add as new, or discard | Busy-store, wrong-identity, resume, discard tests and CLI smoke |
+| Cancel / timeout | Cancel owned subprocess, wait for exit, remove its isolated store; CLI handles SIGINT/SIGTERM | Task-cancellation, accelerated-timeout, and CLI signal/child-cleanup tests; real installed Codex/Claude cancellation with unchanged native credentials |
+| Complete a deferred sign-in | Persist recovery metadata before launching the provider; hide running attempts; resume, add as new, or discard after interruption | Busy-store, wrong-identity, interrupted-intent, storage-failure, cancellation, resume/discard tests and CLI smoke |
 | Switch | Capture outgoing unsaved OAuth login; renew target if due; publish target without changing provider settings/history | Core switching/expiry/external-switch tests; CLI smoke |
 | Renew | Explicit force renewal, automatic expiry renewal, bounded 401 recovery, retained optional token fields | Mock HTTP/lifecycle tests; live Codex and Claude renewals with accepted subsequent usage requests |
 | Replace / reauthenticate | Preserve saved record ID/name; require same identity; update active native login if applicable | Replacement, identity-mismatch, failed-publication recovery tests; CLI smoke |
 | Detach / resume | Keep provider login intact, pause all automatic work for that saved record; normal provider login/logout remains available | Core detach/resume/external-login tests; CLI smoke; rendered detached state |
 | Remove | Forget only Acc's saved copy | Core removal/no-recapture tests and CLI smoke |
 | Sign out locally | Preserve outgoing saved account, clear native credentials and Claude account metadata, preserve unrelated settings | Core/native-store tests and CLI smoke |
-| Remaining usage | 5-hour/weekly windows when present; reset times; stale cache; additional/scoped model limits | Fixture parsers, rate-limit/401/server-error tests, rendered progress bars |
+| Remaining usage | 5-hour/weekly windows when present; reset times; stale cache; additional/scoped model limits | Fixture parsers, rate-limit/401/server-error tests, reset-boundary and foreground scheduling regressions; live usage updates |
 | Usage disabled | No automatic usage calls; renewal remains independent | Settings and maintenance tests |
 | Keep-fresh disabled / detached | No automatic rotation; detached records skip both polling and renewal | Offline/paused tests |
 | Concurrent Acc processes | File lock prevents overlapping refreshes; cancelled work releases ownership | Process-lock and overlap tests; CLI cancellation smoke |
@@ -46,7 +46,7 @@ Codex requests use the public OAuth client ID and JSON refresh body used by Code
 | Codex default / `file` | `$CODEX_HOME/auth.json`, defaulting to `$HOME/.codex/auth.json`; default verified in Codex source |
 | Codex `keyring` | `Codex Auth` service, `cli\|` plus first 16 hex characters of SHA-256 of canonical home path; strict Keychain error propagation |
 | Codex `auto` | Keychain first, then file fallback; successful Keychain publication removes stale fallback; a known active Keychain item cannot be silently replaced only in the file |
-| Claude Keychain | `Claude Code-credentials`, or service suffix derived from the first eight SHA-256 hex characters of literal `CLAUDE_CONFIG_DIR`; account uses `USER` or OS username |
+| Claude Keychain | `Claude Code-credentials`, or a suffix from the first eight SHA-256 hex characters of the NFC-normalized credential-directory override; `CLAUDE_SECURESTORAGE_CONFIG_DIR` takes precedence over `CLAUDE_CONFIG_DIR`; account uses `USER` or OS username |
 | Claude file fallback | `.credentials.json` in the selected credential directory; readable fallback supported when Keychain is locked |
 | Claude metadata | Existing `<config>/.config.json` takes precedence, then custom `<config>/.claude.json`, then `$HOME/.claude.json`; preserve unrelated settings and same-account metadata |
 | Separate Claude credential directory | `CLAUDE_SECURESTORAGE_CONFIG_DIR`; isolated browser login sets it alongside `CLAUDE_CONFIG_DIR` |
@@ -57,17 +57,19 @@ Native storage behavior is exercised against temporary files and an injected Key
 
 ## Automated checks
 
-The v0.1.2 pass uses 85 Swift tests, the offline CLI smoke suite, a release build,
+The v0.2.0 pass uses 104 Swift tests, the offline CLI smoke suite, a release build,
 bundle signature verification, and plist validation. The CLI suite exercises
 real subprocess supervision with fake provider CLIs, signal cancellation, pending
 login recovery, and shutdown. Static renders cover 28 layouts across light and
 dark appearances, including short and tall panels, a regular window, empty,
 paused, pending, uncertain, and sign-in-needed states.
+Static renders check layout; README screenshots capture the actual native
+popover with synthetic accounts, including its system material and active controls.
+
+Compilation and tests run in GitHub Actions. The downloaded artifact can be
+installed and checked locally without compiling:
 
 ```sh
-swift test
-./scripts/build-app.sh
-python3 scripts/smoke-test.py
 codesign --verify --deep --strict /Applications/Acc.app
 plutil -lint /Applications/Acc.app/Contents/Info.plist
 ./dist/Acc.app/Contents/MacOS/AccMenuBar --render-previews /tmp/acc-previews
@@ -108,6 +110,23 @@ relaunch, with Open at login enabled. The interface follows Apple's guidance for
 [menus](https://developer.apple.com/design/human-interface-guidelines/menus), and
 [Settings](https://developer.apple.com/design/human-interface-guidelines/settings).
 
+The v0.2.0 CI artifact was installed in Applications with the owner's existing
+Developer ID identity. Native SwiftUI Settings opened through Command–Comma and
+the popover's Settings menu, including reopening an existing Settings window.
+Window/menu-bar presentation changes worked. The native popover's accessible
+height controls resized its content while keeping the footer visible. The
+installed app retained enabled launch-at-login registration and showed the
+migrated one-hour Claude renewal lead. Live usage changed after background
+polling without rotating native credentials.
+
+Real cancellation checks used **Codex 0.162.0-alpha.13** and **Claude Code
+2.1.292**. Each CLI ran under a separate test vault and temporary provider homes;
+neither test used the installed app's saved account store. Cancelling Acc returned
+exit status 130, stopped the owned provider process, removed the pending sign-in
+directory, and saved no account. Native credential/configuration file hashes and
+Claude Keychain metadata remained unchanged. The OpenAI browser sign-in page was
+observed; completed browser consent for either provider remains separate evidence.
+
 ## Limits of this evidence
 
 - Actual browser consent with both installed provider CLIs and switching two real
@@ -115,8 +134,10 @@ relaunch, with Open at login enabled. The interface follows Apple's guidance for
   checks. Fake CLI tests do not prove browser consent or running-client adoption.
 - A real macOS logout/reboot was not performed. Registration evidence does not
   prove launch after every OS update or login configuration.
-- Native window zoom and panel dragging were verified. Corner dragging of the
-  standard window did not resize through the automation tool.
+- Native window zoom and the previous panel's dragging were verified. The new
+  native popover's accessible resize controls work; direct dragging currently
+  encounters a computer-control window-targeting error. Corner dragging of the
+  standard window also remains unverified through that tool.
 - Tests do not prove months of unattended operation or recoverability after a
   provider returns new tokens but its response is lost. Unknown outcomes pause
   replay by default. Old credentials cannot undo a consumed refresh token.

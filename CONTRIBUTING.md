@@ -16,6 +16,7 @@ The build installs `/Applications/Acc.app`. Quit and reopen that copy to use the
 new version. Preview launches a separate app with synthetic accounts and no
 credential access, networking, or login-item registration. Preview account
 changes are in memory; Help → Reset Preview Accounts restores the fixtures.
+Use `./scripts/preview-app.sh --show-panel` to inspect the menu-bar popover.
 
 Build incrementally and only when code changes need verification. The app build
 defaults to two jobs to reduce local load; set `ACC_BUILD_JOBS=1` for the lowest

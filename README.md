@@ -9,8 +9,8 @@ accounts a click away.
 **[Download for macOS](https://github.com/morajabi/acc/releases/latest/download/Acc-macOS.zip)** · [Releases](https://github.com/morajabi/acc/releases) · [Contributing](CONTRIBUTING.md)
 
 <p align="center">
-  <img src="docs/images/accounts.png" width="360" alt="Acc's compact ChatGPT account panel with remaining usage and renewal status">
-  <img src="docs/images/claude.png" width="360" alt="Acc's Claude account panel with usage windows and account switching">
+  <img src="docs/images/accounts.jpg" width="360" align="top" alt="Acc's compact ChatGPT account panel with remaining usage and renewal status">
+  <img src="docs/images/claude.jpg" width="360" align="top" alt="Acc's Claude account panel with usage windows and renewal status">
 </p>
 <p align="center"><sub>Screenshots use example accounts.</sub></p>
 
