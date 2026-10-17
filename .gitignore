@@ -1,0 +1,13 @@
+.build/
+.swiftpm/
+dist/
+.DS_Store
+*.xcuserstate
+__pycache__/
+.env
+.env.*
+!.env.example
+auth.json
+.credentials.json
+accounts.json
+*.log

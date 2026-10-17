@@ -1,0 +1,66 @@
+import SwiftUI
+import AppKit
+import AccCore
+
+/// Deterministic, credential-free renders of the shipping views for layout review.
+@MainActor enum PreviewRenderer {
+    static func render(to directory: URL) throws {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.prohibited)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        for theme in ["light", "dark"] {
+            let appearance = NSAppearance(named: theme == "light" ? .aqua : .darkAqua)!
+            for state in ["accounts", "claude", "current", "empty", "error", "keychain", "detached", "pending", "signin", "short", "tall", "uncertain", "window"] {
+                let model = AppModel(demo: true)
+                if state == "claude" { model.selectedProvider = .claude }
+                if state == "current" {
+                    let active = model.accounts[0]
+                    model.accounts = []
+                    model.current = [CurrentLogin(provider: .codex, identity: active.identity)]
+                    model.observedUsage[.codex] = active.usage
+                }
+                if state == "empty" { model.accounts = []; model.current = [] }
+                if state == "keychain" {
+                    model.accounts = []; model.selectedProvider = .claude
+                    model.current = [CurrentLogin(provider: .claude, message: "Allow Keychain access to show your active Claude subscription.", requiresKeychainAccess: true)]
+                }
+                if state == "signin" { model.signingIn = .codex; model.busy = true }
+                if state == "error" {
+                    model.accounts[0].health = .needsSignIn
+                    model.accounts[0].renewalHealth = .needsSignIn
+                    model.accounts[0].message = "Sign in again to refresh this account."
+                    model.message = "Could not reach the provider. Acc will retry later."
+                }
+                if state == "uncertain" {
+                    model.accounts[0].health = .uncertain; model.accounts[0].renewalHealth = .uncertain
+                    model.accounts[0].message = AccError.refreshUncertain.localizedDescription
+                    model.accounts[0].nextRefreshAt = nil
+                }
+                if state == "detached" { model.accounts[0].isPaused = true }
+                if state == "pending" {
+                    model.pending = try JSONDecoder().decode([PendingSignIn].self, from: Data("""
+                    [{"id":"00000000-0000-0000-0000-000000000010","provider":"codex","createdAt":0}]
+                    """.utf8))
+                }
+                try snapshot(AccountPanel(model: model, compact: state != "window"), size: NSSize(width: state == "window" ? 520 : 410, height: state == "short" ? 360 : state == "tall" ? 800 : 600),
+                    appearance: appearance, to: directory.appendingPathComponent("\(state)-\(theme).png"))
+            }
+            try snapshot(AccSettings(model: AppModel(demo: true)), size: NSSize(width: 520, height: 540),
+                appearance: appearance, to: directory.appendingPathComponent("settings-\(theme).png"))
+        }
+        print("Rendered 28 credential-free previews to \(directory.path)")
+    }
+    private static func snapshot<V: View>(_ content: V, size: NSSize, appearance: NSAppearance, to url: URL) throws {
+        let window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        let view = NSHostingView(rootView: content.environment(\.colorScheme, appearance.name == .darkAqua ? .dark : .light))
+        window.appearance = appearance
+        view.appearance = appearance
+        window.contentView = view
+        view.frame = NSRect(origin: .zero, size: size)
+        view.layoutSubtreeIfNeeded()
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { throw AccError.storage }
+        view.cacheDisplay(in: view.bounds, to: bitmap)
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { throw AccError.storage }
+        try data.write(to: url)
+    }
+}
