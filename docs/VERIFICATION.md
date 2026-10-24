@@ -46,14 +46,14 @@ Codex requests use the public OAuth client ID and JSON refresh body used by Code
 | Codex default / `file` | `$CODEX_HOME/auth.json`, defaulting to `$HOME/.codex/auth.json`; default verified in Codex source |
 | Codex `keyring` | `Codex Auth` service, `cli\|` plus first 16 hex characters of SHA-256 of canonical home path; strict Keychain error propagation |
 | Codex `auto` | Keychain first, then file fallback; successful Keychain publication removes stale fallback; a known active Keychain item cannot be silently replaced only in the file |
-| Claude Keychain | `Claude Code-credentials`, or a suffix from the first eight SHA-256 hex characters of the NFC-normalized credential-directory override; `CLAUDE_SECURESTORAGE_CONFIG_DIR` takes precedence over `CLAUDE_CONFIG_DIR`; account uses `USER` or OS username |
+| Claude Keychain | `Claude Code-credentials`, or a suffix from the first eight SHA-256 hex characters of the NFC-normalized credential-directory override; `CLAUDE_SECURESTORAGE_CONFIG_DIR` takes precedence over `CLAUDE_CONFIG_DIR`; account uses `USER` or OS username; read, written, and deleted through `/usr/bin/security` like Claude Code, because the item's partition list follows its last writer and a Security-framework write from Acc made every Claude Code process prompt |
 | Claude file fallback | `.credentials.json` in the selected credential directory; readable fallback supported when Keychain is locked |
 | Claude metadata | Existing `<config>/.config.json` takes precedence, then custom `<config>/.claude.json`, then `$HOME/.claude.json`; preserve unrelated settings and same-account metadata |
 | Separate Claude credential directory | `CLAUDE_SECURESTORAGE_CONFIG_DIR`; isolated browser login sets it alongside `CLAUDE_CONFIG_DIR` |
 | Unsupported modes | Explicitly reject Codex external-token, API-key, PAT, and agent-identity auth as managed ChatGPT OAuth; ephemeral modes are not written |
 | Vault integrity | Private permissions, atomic same-directory replacement, symlink rejection at write targets, corrupt vaults reported rather than treated as empty |
 
-Native storage behavior is exercised against temporary files and an injected Keychain. App account lists, CLI JSON, errors, and diagnostic descriptions contain no tokens. The private account store does contain OAuth secrets and is not encrypted.
+Native storage behavior is exercised against temporary files, an injected Keychain, and a stand-in `security` tool. App account lists, CLI JSON, errors, and diagnostic descriptions contain no tokens. The private account store does contain OAuth secrets and is not encrypted.
 
 ## Automated checks
 
@@ -145,6 +145,17 @@ An intervening native Codex token update was adopted by Acc without another Acc
 renewal attempt. The saved credential and tracked native fingerprint matched;
 pending-publication and refresh-in-flight flags were clear. The exact external
 writer was not identified.
+
+## Live checks on 2026-10-24
+
+Unified logs showed every Claude Code keychain prompt over three days was a
+partition mismatch: `/usr/bin/security` (`apple-tool:`) against an item whose list
+held only Acc's `teamid:`, following Acc's Security-framework writes. After
+switching Claude storage to `/usr/bin/security`, the installed build read the live
+Claude login passively with no prompt. A disposable item survived write, update,
+non-ASCII, and argv-sized round trips from the new code with no prompt, and its
+partition list stayed `apple-tool:` with only `/usr/bin/security` trusted. A real
+account switch followed by Claude Code launches remains separate evidence.
 
 ## Limits of this evidence
 

@@ -48,7 +48,11 @@ private enum KeychainInteraction {
 
 struct Keychain: KeychainAccess {
     var allowInteraction = false
+    private func securityTool(_ service: String) -> SecurityToolKeychain? {
+        service.hasPrefix(AccPaths.claudeService(configDirectory: nil)) ? SecurityToolKeychain(allowInteraction: allowInteraction) : nil
+    }
     func read(service: String, account: String) throws -> Data? {
+        if let tool = securityTool(service) { return try tool.read(service: service, account: account) }
         var result: CFTypeRef?
         var query: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: account,
@@ -64,6 +68,7 @@ struct Keychain: KeychainAccess {
         return data
     }
     func write(_ data: Data, service: String, account: String) throws {
+        if let tool = securityTool(service) { return try tool.write(data, service: service, account: account) }
         let query: [CFString: Any] = [kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: account]
         var status = KeychainInteraction.run(allowed: allowInteraction) { SecItemUpdate(query as CFDictionary, [kSecValueData: data] as CFDictionary) }
         if status == errSecItemNotFound {
@@ -75,10 +80,96 @@ struct Keychain: KeychainAccess {
         guard status == errSecSuccess else { throw AccError.keychain(status) }
     }
     func delete(service: String, account: String) throws {
+        if let tool = securityTool(service) { return try tool.delete(service: service, account: account) }
         let status = KeychainInteraction.run(allowed: allowInteraction) {
             SecItemDelete([kSecClass: kSecClassGenericPassword, kSecAttrService: service, kSecAttrAccount: account] as CFDictionary)
         }
         guard status == errSecSuccess || status == errSecItemNotFound else { throw AccError.keychain(status) }
+    }
+}
+
+/// Claude Code reads and writes its login with `/usr/bin/security`. A file-based
+/// Keychain item's partition list follows its last writer, so a write from Acc
+/// locks that tool out and every Claude Code process prompts. Share its writer.
+struct SecurityToolKeychain: KeychainAccess {
+    var allowInteraction = false
+    var executable = URL(fileURLWithPath: "/usr/bin/security")
+    /// Passive reads must not leave a dialog waiting for an absent user.
+    var passiveTimeout: TimeInterval = 5
+    var isUnlocked: @Sendable () -> Bool = SecurityToolKeychain.defaultKeychainUnlocked
+    /// `security -i` splits longer lines and saves a truncated item.
+    static let commandLineLimit = 4000
+    private static let notFound = errSecItemNotFound & 0xFF
+
+    func read(service: String, account: String) throws -> Data? {
+        let result = try run(["find-generic-password", "-a", account, "-s", service, "-w"])
+        if result.status == Self.notFound { return nil }
+        try check(result.status)
+        var output = result.output
+        if output.last == UInt8(ascii: "\n") { output.removeLast() }
+        return Self.hexDecoded(output) ?? output
+    }
+    func write(_ data: Data, service: String, account: String) throws {
+        let hex = data.map { String(format: "%02x", $0) }.joined()
+        let command = "add-generic-password -U -a \"\(account)\" -s \"\(service)\" -X \"\(hex)\"\n"
+        // Like Claude Code, keep the secret out of argv whenever it fits on stdin.
+        if !(account + service).contains(where: { "\"\\\n".contains($0) }), command.utf8.count <= Self.commandLineLimit {
+            try check(run(["-i"], input: Data(command.utf8)).status)
+        } else {
+            try check(run(["add-generic-password", "-U", "-a", account, "-s", service, "-X", hex]).status)
+        }
+    }
+    func delete(service: String, account: String) throws {
+        let status = try run(["delete-generic-password", "-a", account, "-s", service]).status
+        if status != Self.notFound { try check(status) }
+    }
+    /// `security` exits with the low byte of the failing OSStatus.
+    private func check(_ status: Int32) throws {
+        guard status != 0 else { return }
+        throw AccError.keychain([errSecInteractionNotAllowed, errSecAuthFailed, errSecUserCanceled].first { $0 & 0xFF == status } ?? status)
+    }
+    private func run(_ arguments: [String], input: Data? = nil) throws -> (status: Int32, output: Data) {
+        // A locked keychain would make `security` ask to unlock it.
+        guard allowInteraction || isUnlocked() else { throw AccError.keychain(errSecInteractionNotAllowed) }
+        let process = Process(), output = Pipe()
+        process.executableURL = executable
+        process.arguments = arguments
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        if let input {
+            // Fill the pipe before launch, so an early exit cannot raise SIGPIPE here.
+            let pipe = Pipe()
+            try pipe.fileHandleForWriting.write(contentsOf: input)
+            try pipe.fileHandleForWriting.close()
+            process.standardInput = pipe
+        }
+        do { try process.run() } catch { throw AccError.keychain(errSecNotAvailable) }
+        let watchdog = DispatchWorkItem { if process.isRunning { process.terminate() } }
+        if !allowInteraction { DispatchQueue.global().asyncAfter(deadline: .now() + passiveTimeout, execute: watchdog) }
+        let data = (try? output.fileHandleForReading.readToEnd()) ?? Data()
+        process.waitUntilExit()
+        watchdog.cancel()
+        // Ending the client also dismisses any dialog it raised.
+        guard process.terminationReason == .exit else { throw AccError.keychain(errSecInteractionNotAllowed) }
+        return (process.terminationStatus, data)
+    }
+    /// `-w` prints data with non-printable bytes as bare hex; JSON never looks like that.
+    private static func hexDecoded(_ text: Data) -> Data? {
+        let nibbles = text.compactMap { byte -> UInt8? in
+            switch byte { case 48...57: byte - 48; case 97...102: byte - 87; default: nil }
+        }
+        guard !text.isEmpty, nibbles.count == text.count, text.count.isMultiple(of: 2) else { return nil }
+        return Data(stride(from: 0, to: nibbles.count, by: 2).map { nibbles[$0] << 4 | nibbles[$0 + 1] })
+    }
+    static func defaultKeychainUnlocked() -> Bool {
+        typealias GetStatus = @convention(c) (UnsafeRawPointer?, UnsafeMutablePointer<UInt32>) -> OSStatus
+        guard let handle = dlopen("/System/Library/Frameworks/Security.framework/Security", RTLD_LAZY) else { return true }
+        defer { dlclose(handle) }
+        guard let symbol = dlsym(handle, "SecKeychainGetStatus") else { return true }
+        var status: UInt32 = 0
+        // Bit 0 is kSecUnlockStateStatus; no default keychain reads as locked.
+        return unsafeBitCast(symbol, to: GetStatus.self)(nil, &status) == errSecSuccess && status & 1 != 0
     }
 }
 
