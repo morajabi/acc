@@ -247,12 +247,12 @@ public struct NativeCredentialStore: ActiveCredentialStore {
         var keychainError: (any Error)?
         do { keychainData = try keychain.read(service: paths.claudeKeychainService, account: user) }
         catch { keychainData = nil; keychainError = error }
-        let location = keychainData == nil ? "file" : "keychain"
+        let publishLocation = keychainData == nil ? "file" : "keychain"
         let sources: [() throws -> Data?] = [{ keychainData }, claudeFileData]
         var problems: [AccError] = []
         for read in sources {
             guard let data = try read() else { continue }
-            do { return .active(ActiveSnapshot(credential: try withClaudeIdentity(Credential.parse(data, provider: .claude)), location: location)) }
+            do { return .active(ActiveSnapshot(credential: try withClaudeIdentity(Credential.parse(data, provider: .claude)), location: publishLocation)) }
             catch { problems.append(error as? AccError ?? .unreadableLogin(.claude)) }
         }
         if let keychainError { throw keychainError }

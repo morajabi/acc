@@ -173,7 +173,23 @@ func claudeExpiryAcceptsMillisecondsSecondsAndDates(fragment: String, expected: 
     let home = ShapeHome(); defer { home.env.cleanup() }
     try home.storeKeychain(Data("not json".utf8))
     try home.storeFile(claude().document)
-    #expect(try home.native.read(.claude)?.credential.identity.userID == "alice")
+    let snapshot = try #require(try home.native.read(.claude))
+    #expect(snapshot.credential.identity.userID == "alice")
+    #expect(snapshot.location == "keychain")
+    try home.native.replace(claude("bob"), expected: snapshot)
+    #expect(try Credential.parse(#require(try home.keychainDocument()), provider: .claude).identity.userID == "bob")
+    #expect(try Credential.parse(Data(contentsOf: home.file), provider: .claude).identity.userID == "bob")
+}
+
+@Test func fileLoginWithoutAnyKeychainItemPublishesOnlyToTheFile() throws {
+    let env = TestEnvironment(); defer { env.cleanup() }
+    let native = NativeCredentialStore(paths: env.paths, keychain: ThrowingKeychain())
+    let file = env.paths.claudeCredentialsHome.appendingPathComponent(".credentials.json")
+    try privateWrite(claude().document, to: file)
+    let snapshot = try #require(try native.read(.claude))
+    #expect(snapshot.location == "file")
+    try native.replace(claude("bob"), expected: snapshot)
+    #expect(try Credential.parse(Data(contentsOf: file), provider: .claude).identity.userID == "bob")
 }
 
 @Test func usableKeychainWinsOverStaleFile() throws {
