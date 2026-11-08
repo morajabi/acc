@@ -30,7 +30,10 @@ public struct AccPaths: Sendable {
             : custom == nil ? home.appendingPathComponent(".claude.json") : claudeHome.appendingPathComponent(".claude.json")
         claudeKeychainService = Self.claudeService(configDirectory: custom,
             secureStorageDirectory: environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"])
-        claudeKeychainAccount = environment["USER"].flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName()
+        claudeKeychainAccount = Self.claudeAccount(user: environment["USER"].flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName())
+    }
+    static func claudeAccount(user: String) -> String {
+        user.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) == nil ? "claude-code-user" : user
     }
     public static func claudeService(configDirectory: String?, secureStorageDirectory: String? = nil) -> String {
         // Claude's explicit secure-storage override wins, including an empty

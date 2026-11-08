@@ -59,7 +59,9 @@ public actor AccountService {
         let vault = try store.load()
         return providers.map { provider in
             do {
-                let native = try readActive(provider, in: vault)
+                let login = try inspectActive(provider, in: vault)
+                if case .unusable(let reason)? = login { return CurrentLogin(provider: provider, message: safeMessage(reason)) }
+                let native = login?.snapshot
                 return CurrentLogin(provider: provider, identity: native?.credential.identity,
                     expiresAt: native?.credential.expiresAt,
                     savedAccountID: native.flatMap { snapshot in vault.accounts.first { matches($0.credential, snapshot.credential) }?.id },
@@ -77,7 +79,7 @@ public actor AccountService {
     }
     /// Observes an unsaved login without rotating or retaining its credentials.
     public func currentUsage(_ provider: Provider, now: Date = Date()) async throws -> UsageSnapshot {
-        guard let before = try active.read(provider) else { throw AccError.invalidCredentials }
+        let before = try usableActive(provider)
         let usage = try await client.usage(before.credential, now: now)
         guard try active.read(provider)?.fingerprint == before.fingerprint else { throw AccError.externalChange }
         return usage
@@ -97,8 +99,7 @@ public actor AccountService {
     }
     @discardableResult
     public func importCurrent(_ provider: Provider, label: String? = nil) async throws -> UUID {
-        guard let snapshot = try active.read(provider) else { throw AccError.invalidCredentials }
-        return try await importCredential(snapshot.credential, label: label)
+        try await importCredential(usableActive(provider).credential, label: label)
     }
     @discardableResult
     public func importCredential(_ input: Credential, label: String? = nil, replacing id: UUID? = nil) async throws -> UUID {
@@ -107,6 +108,7 @@ public actor AccountService {
         var credential = input
         if credential.provider == .claude, credential.identity.userID.isEmpty { credential = try await client.identify(credential) }
         guard !credential.identity.userID.isEmpty else { throw AccError.invalidCredentials }
+        guard credential.provider == .codex || !credential.refreshToken.isEmpty else { throw AccError.noRefreshToken(credential.provider) }
         vault.forgottenIdentities?.removeAll { $0 == credential.provider.rawValue + "|" + credential.identity.key }
         let index = vault.accounts.firstIndex { $0.credential.provider == credential.provider && $0.credential.identity.key == credential.identity.key }
         if let id {
@@ -411,14 +413,25 @@ public actor AccountService {
             vault.accounts.append(record)
         }
     }
+    private func usableActive(_ provider: Provider) throws -> ActiveSnapshot {
+        switch try active.inspect(provider) {
+        case .active(let snapshot)?: return snapshot
+        case .unusable(let reason)?: throw reason
+        case nil: throw AccError.loginNotFound(provider)
+        }
+    }
     private func readActive(_ provider: Provider, in vault: Vault) throws -> ActiveSnapshot? {
-        guard var snapshot = try active.read(provider) else { return nil }
+        try inspectActive(provider, in: vault)?.snapshot
+    }
+    private func inspectActive(_ provider: Provider, in vault: Vault) throws -> NativeLogin? {
+        let login = try active.inspect(provider)
+        guard var snapshot = login?.snapshot else { return login }
         // Claude stores identity separately. After a partial write, exact token
         // matches in our durable store are stronger evidence than stale metadata.
         if provider == .claude, let known = vault.accounts.first(where: {
             $0.credential.provider == provider && $0.credential.accessToken == snapshot.credential.accessToken
         }) { snapshot.credential.identity = known.credential.identity }
-        return snapshot
+        return .active(snapshot)
     }
     /// Native-store availability controls publication, not whether saved accounts
     /// can stay alive. The stricter behavior remains an explicit user preference.

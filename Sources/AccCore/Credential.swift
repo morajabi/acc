@@ -18,39 +18,54 @@ public struct Credential: Codable, Sendable, CustomStringConvertible, CustomDebu
     var fingerprint: String { digest(document) }
 
     public static func parse(_ data: Data, provider: Provider, identity: AccountIdentity? = nil) throws -> Credential {
+        if provider == .claude { return try parseClaude(data, identity: identity) }
         guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw AccError.invalidCredentials }
-        if provider == .codex {
-            let mode = root["auth_mode"] as? String
-            if let mode, mode != "chatgpt" { throw AccError.unsupportedAuthentication }
-            if mode == nil, ["OPENAI_API_KEY", "personal_access_token", "bedrock_api_key", "bedrock_access_keys"].contains(where: {
-                root[$0] != nil && !(root[$0] is NSNull)
-            }) { throw AccError.unsupportedAuthentication }
-        }
-        guard let tokens = root[provider == .codex ? "tokens" : "claudeAiOauth"] as? [String: Any],
-              let access = tokens[provider == .codex ? "access_token" : "accessToken"] as? String,
+        let mode = root["auth_mode"] as? String
+        if let mode, mode != "chatgpt" { throw AccError.unsupportedAuthentication }
+        if mode == nil, ["OPENAI_API_KEY", "personal_access_token", "bedrock_api_key", "bedrock_access_keys"].contains(where: {
+            root[$0] != nil && !(root[$0] is NSNull)
+        }) { throw AccError.unsupportedAuthentication }
+        guard let tokens = root["tokens"] as? [String: Any],
+              let access = tokens["access_token"] as? String,
               !access.isEmpty else { throw AccError.invalidCredentials }
-        if provider == .codex {
-            let id = jwt(tokens["id_token"] as? String ?? "")
-            let claims = jwt(access)
-            let auth = id["https://api.openai.com/auth"] as? [String: Any]
-                ?? claims["https://api.openai.com/auth"] as? [String: Any] ?? [:]
-            let profile = claims["https://api.openai.com/profile"] as? [String: Any] ?? [:]
-            let accountID = tokens["account_id"] as? String ?? auth["chatgpt_account_id"] as? String
-            let user = auth["chatgpt_user_id"] as? String ?? id["sub"] as? String ?? claims["sub"] as? String
-            guard let accountID, !accountID.isEmpty, let user, !user.isEmpty else { throw AccError.invalidCredentials }
-            let parsed = AccountIdentity(userID: user, organizationID: accountID,
-                email: id["email"] as? String ?? profile["email"] as? String,
-                plan: auth["chatgpt_plan_type"] as? String)
-            return Credential(provider: provider, identity: parsed, document: data,
-                expiresAt: (claims["exp"] as? Double).map(Date.init(timeIntervalSince1970:)),
-                refreshedAt: date(root["last_refresh"] as? String))
+        let id = jwt(tokens["id_token"] as? String ?? "")
+        let claims = jwt(access)
+        let auth = id["https://api.openai.com/auth"] as? [String: Any]
+            ?? claims["https://api.openai.com/auth"] as? [String: Any] ?? [:]
+        let profile = claims["https://api.openai.com/profile"] as? [String: Any] ?? [:]
+        let accountID = tokens["account_id"] as? String ?? auth["chatgpt_account_id"] as? String
+        let user = auth["chatgpt_user_id"] as? String ?? id["sub"] as? String ?? claims["sub"] as? String
+        guard let accountID, !accountID.isEmpty, let user, !user.isEmpty else { throw AccError.invalidCredentials }
+        let parsed = AccountIdentity(userID: user, organizationID: accountID,
+            email: id["email"] as? String ?? profile["email"] as? String,
+            plan: auth["chatgpt_plan_type"] as? String)
+        return Credential(provider: provider, identity: parsed, document: data,
+            expiresAt: (claims["exp"] as? Double).map(Date.init(timeIntervalSince1970:)),
+            refreshedAt: date(root["last_refresh"] as? String))
+    }
+
+    private static func parseClaude(_ input: Data, identity: AccountIdentity?) throws -> Credential {
+        var data = trimmedDocument(input)
+        guard var root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw AccError.invalidCredentials }
+        if root["claudeAiOauth"] == nil, root["accessToken"] is String {
+            root = ["claudeAiOauth": root]
+            data = try JSONSerialization.data(withJSONObject: root, options: [.sortedKeys])
         }
+        guard let tokens = root["claudeAiOauth"] as? [String: Any] else { throw AccError.loginNotFound(.claude) }
+        guard let access = tokens["accessToken"] as? String,
+              !access.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw AccError.loginEnded(.claude) }
         let account = root["oauthAccount"] as? [String: Any] ?? [:]
         let parsed = identity ?? AccountIdentity(userID: account["accountUuid"] as? String ?? "",
             organizationID: account["organizationUuid"] as? String,
             email: account["emailAddress"] as? String, plan: tokens["subscriptionType"] as? String)
-        return Credential(provider: provider, identity: parsed, document: data,
-            expiresAt: (tokens["expiresAt"] as? Double).map { Date(timeIntervalSince1970: $0 / 1000) })
+        return Credential(provider: .claude, identity: parsed, document: data, expiresAt: epochDate(tokens["expiresAt"]))
+    }
+
+    private static func trimmedDocument(_ data: Data) -> Data {
+        var bytes = data[...]
+        if bytes.starts(with: [0xEF, 0xBB, 0xBF]) { bytes = bytes.dropFirst(3) }
+        while let last = bytes.last, last == 0 || last == 0x20 || (0x09...0x0D).contains(last) { bytes = bytes.dropLast() }
+        return bytes.count == data.count ? data : Data(bytes)
     }
 
     func replacingTokens(_ response: Data, now: Date) throws -> Credential {
@@ -113,6 +128,15 @@ func jwt(_ token: String) -> [String: Any] {
     payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
     guard let data = Data(base64Encoded: payload) else { return [:] }
     return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+}
+
+func epochDate(_ value: Any?) -> Date? {
+    if let text = value as? String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        return date(trimmed) ?? Double(trimmed).flatMap { epochDate($0) }
+    }
+    guard !(value is Bool), let number = value as? Double, number.isFinite, number >= 1_000_000_000 else { return nil }
+    return Date(timeIntervalSince1970: number >= 100_000_000_000 ? number / 1000 : number)
 }
 
 func date(_ text: String?) -> Date? {
