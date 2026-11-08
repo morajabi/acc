@@ -10,6 +10,7 @@ public struct AccPaths: Sendable {
     public var claudeHome: URL
     public var claudeCredentialsHome: URL
     public var claudeConfig: URL
+    public var claudeDesktopConfig: URL
     public var claudeKeychainService: String
     public var claudeKeychainAccount: String
     public init(root: URL? = nil, home: URL? = nil,
@@ -25,12 +26,16 @@ public struct AccPaths: Sendable {
         if let secureRoot = environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] {
             claudeCredentialsHome = secureRoot.isEmpty ? home.appendingPathComponent(".claude") : URL(fileURLWithPath: secureRoot)
         } else { claudeCredentialsHome = claudeHome }
+        claudeDesktopConfig = home.appendingPathComponent("Library/Application Support/Claude/config.json")
         let legacyConfig = claudeHome.appendingPathComponent(".config.json")
         claudeConfig = FileManager.default.fileExists(atPath: legacyConfig.path) ? legacyConfig
             : custom == nil ? home.appendingPathComponent(".claude.json") : claudeHome.appendingPathComponent(".claude.json")
         claudeKeychainService = Self.claudeService(configDirectory: custom,
             secureStorageDirectory: environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"])
-        claudeKeychainAccount = environment["USER"].flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName()
+        claudeKeychainAccount = Self.claudeAccount(user: environment["USER"].flatMap { $0.isEmpty ? nil : $0 } ?? NSUserName())
+    }
+    static func claudeAccount(user: String) -> String {
+        user.range(of: "^[A-Za-z0-9._-]+$", options: .regularExpression) == nil ? "claude-code-user" : user
     }
     public static func claudeService(configDirectory: String?, secureStorageDirectory: String? = nil) -> String {
         // Claude's explicit secure-storage override wins, including an empty

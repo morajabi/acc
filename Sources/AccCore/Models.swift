@@ -4,6 +4,10 @@ public enum Provider: String, Codable, CaseIterable, Sendable, Identifiable {
     case codex, claude
     public var id: String { rawValue }
     public var title: String { self == .codex ? "Codex" : "Claude" }
+    var clientName: String { self == .codex ? "Codex" : "Claude Code" }
+    var signInAdvice: String {
+        self == .codex ? "Sign in from Acc, or run `codex login`." : "Sign in from Acc, or run `claude auth login`."
+    }
 }
 
 public struct AccountIdentity: Codable, Equatable, Sendable {
@@ -153,8 +157,14 @@ public enum AccError: Error, LocalizedError, Sendable, Equatable {
     case network, http(Int), rateLimited(Date), storage, keychain(Int32), externalChange
     case unsupportedStorage, executableMissing(Provider), loginFailed, loginTimedOut
     case identityMismatch, invalidArgument(String), pendingSignIn(UUID), unsupportedAuthentication
+    case loginNotFound(Provider), loginEnded(Provider), unreadableLogin(Provider), noRefreshToken(Provider), claudeDesktopOnly
     public var errorDescription: String? {
         switch self {
+        case .claudeDesktopOnly: "Signed in to Claude desktop only — sign in with Claude Code (`claude`) or use + → Sign In with Browser…"
+        case .loginNotFound(let provider): "No \(provider.clientName) login found. \(provider.signInAdvice)"
+        case .loginEnded(let provider): "\(provider.clientName)’s saved login has ended. \(provider.signInAdvice)"
+        case .unreadableLogin(let provider): "Acc could not read \(provider.clientName)’s saved login. \(provider.signInAdvice)"
+        case .noRefreshToken(let provider): "This \(provider.title) login has no refresh token, so Acc cannot keep it fresh. \(provider.signInAdvice)"
         case .busy: "Another account operation is in progress. Try again shortly."
         case .missingAccount: "Account not found."
         case .unsupportedAuthentication: "This login uses an authentication method Acc does not manage. Sign in with a ChatGPT subscription."

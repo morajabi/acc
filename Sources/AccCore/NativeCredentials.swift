@@ -13,10 +13,24 @@ public struct ActiveSnapshot: Sendable {
     }
 }
 
+public enum NativeLogin: Sendable {
+    case active(ActiveSnapshot)
+    case unusable(AccError)
+    public var snapshot: ActiveSnapshot? {
+        if case .active(let snapshot) = self { return snapshot }
+        return nil
+    }
+}
+
 public protocol ActiveCredentialStore: Sendable {
     func read(_ provider: Provider) throws -> ActiveSnapshot?
+    func inspect(_ provider: Provider) throws -> NativeLogin?
     func replace(_ credential: Credential, expected: ActiveSnapshot?) throws
     func clear(_ provider: Provider, expected: ActiveSnapshot?) throws
+}
+
+public extension ActiveCredentialStore {
+    func inspect(_ provider: Provider) throws -> NativeLogin? { try read(provider).map(NativeLogin.active) }
 }
 
 protocol KeychainAccess: Sendable {
@@ -207,28 +221,60 @@ public struct NativeCredentialStore: ActiveCredentialStore {
         return "file"
     }
     public func read(_ provider: Provider) throws -> ActiveSnapshot? {
+        try inspect(provider)?.snapshot
+    }
+    public func inspect(_ provider: Provider) throws -> NativeLogin? {
+        provider == .claude ? try inspectClaude() : try readCodex().map(NativeLogin.active)
+    }
+    private func readCodex() throws -> ActiveSnapshot? {
         var data: Data?
         var location = "file"
-        let mode = provider == .codex ? try codexMode() : "auto"
+        let mode = try codexMode()
         if mode != "file" {
-            do {
-                data = try keychain.read(service: provider == .codex ? "Codex Auth" : paths.claudeKeychainService,
-                    account: provider == .codex ? codexAccount : user)
-            } catch {
-                // Both CLIs can read their file fallback when Keychain is locked.
-                // Keep an inaccessible, absent Claude fallback visible as an error.
-                guard (provider == .codex && mode == "auto")
-                    || (provider == .claude && FileManager.default.fileExists(atPath: file(provider).path)) else { throw error }
-            }
+            do { data = try keychain.read(service: "Codex Auth", account: codexAccount) }
+            catch { guard mode == "auto" else { throw error } }
             if data != nil { location = "keychain" }
         }
-        if data == nil, mode != "keyring", FileManager.default.fileExists(atPath: file(provider).path) {
-            try rejectSymlink(file(provider))
-            data = try Data(contentsOf: file(provider))
+        if data == nil, mode != "keyring", FileManager.default.fileExists(atPath: file(.codex).path) {
+            try rejectSymlink(file(.codex))
+            data = try Data(contentsOf: file(.codex))
         }
         guard let data else { return nil }
-        var credential = try Credential.parse(data, provider: provider)
-        if provider == .claude, credential.identity.userID.isEmpty,
+        return ActiveSnapshot(credential: try Credential.parse(data, provider: .codex), location: location)
+    }
+    private func inspectClaude() throws -> NativeLogin? {
+        let keychainData: Data?
+        var keychainError: (any Error)?
+        do { keychainData = try keychain.read(service: paths.claudeKeychainService, account: user) }
+        catch { keychainData = nil; keychainError = error }
+        let publishLocation = keychainData == nil ? "file" : "keychain"
+        let sources: [() throws -> Data?] = [{ keychainData }, claudeFileData]
+        var problems: [AccError] = []
+        for read in sources {
+            guard let data = try read() else { continue }
+            do { return .active(ActiveSnapshot(credential: try withClaudeIdentity(Credential.parse(data, provider: .claude)), location: publishLocation)) }
+            catch { problems.append(error as? AccError ?? .unreadableLogin(.claude)) }
+        }
+        if let keychainError { throw keychainError }
+        let ranked: [AccError] = [.loginEnded(.claude), .loginNotFound(.claude)]
+        let reason = problems.isEmpty ? nil : ranked.first(where: problems.contains) ?? .unreadableLogin(.claude)
+        if reason == nil || reason == .loginNotFound(.claude), claudeDesktopSignedIn() { return .unusable(.claudeDesktopOnly) }
+        return reason.map(NativeLogin.unusable)
+    }
+    private func claudeDesktopSignedIn() -> Bool {
+        guard let data = try? Data(contentsOf: paths.claudeDesktopConfig),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return ["oauth:tokenCacheV2", "oauth:tokenCache"].contains { !((config[$0] as? String) ?? "").isEmpty }
+    }
+    private func claudeFileData() throws -> Data? {
+        let url = file(.claude)
+        guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+        try rejectSymlink(url)
+        return try Data(contentsOf: url)
+    }
+    private func withClaudeIdentity(_ parsed: Credential) -> Credential {
+        var credential = parsed
+        if credential.identity.userID.isEmpty,
            let configData = try? Data(contentsOf: paths.claudeConfig),
            let config = try? JSONSerialization.jsonObject(with: configData) as? [String: Any],
            let account = config["oauthAccount"] as? [String: Any] {
@@ -236,7 +282,7 @@ public struct NativeCredentialStore: ActiveCredentialStore {
                 organizationID: account["organizationUuid"] as? String, email: account["emailAddress"] as? String,
                 plan: credential.identity.plan)
         }
-        return ActiveSnapshot(credential: credential, location: location)
+        return credential
     }
     public func replace(_ credential: Credential, expected: ActiveSnapshot?) throws {
         let provider = credential.provider
