@@ -49,6 +49,17 @@ private struct GeneralSettings: View {
                 Toggle("Show remaining usage", isOn: Binding(get: { model.preferences.showUsage }, set: { model.setPreference(\.showUsage, $0) }))
                     .disabled(model.busy)
             } footer: { Text("Usage updates in the background and when you open Acc. Automatic renewal is independent.") }
+            if model.updater.isAvailable {
+                Section("Updates") {
+                    Toggle("Check for updates automatically", isOn: Binding(
+                        get: { model.updater.checksAutomatically }, set: { model.updater.checksAutomatically = $0 }))
+                    Toggle("Install updates automatically", isOn: Binding(
+                        get: { model.updater.installsAutomatically }, set: { model.updater.installsAutomatically = $0 }))
+                        .disabled(!model.updater.checksAutomatically)
+                    Button("Check for Updates…") { model.updater.checkForUpdates() }
+                        .disabled(!model.updater.canCheck)
+                }
+            }
             Section {
                 LabeledContent("Version", value: AppVersion.display)
                 Link("Source Code on GitHub", destination: URL(string: "https://github.com/morajabi/acc")!)

@@ -22,7 +22,12 @@ acc_build_number=${ACC_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || 
 swift scripts/make-icon.swift "$acc_bundle/Contents/Resources/Acc.icns"
 cp docs/THIRD_PARTY_NOTICES.md "$acc_bundle/Contents/Resources/ThirdPartyNotices.md"
 cp docs/licenses/CodexBar.txt "$acc_bundle/Contents/Resources/CodexBar-License.txt"
+cp docs/licenses/Sparkle.txt "$acc_bundle/Contents/Resources/Sparkle-License.txt"
 cp LICENSE "$acc_bundle/Contents/Resources/LICENSE.txt"
+mkdir -p "$acc_bundle/Contents/Frameworks"
+ditto "$acc_bin_dir/Sparkle.framework" "$acc_bundle/Contents/Frameworks/Sparkle.framework"
+rm -rf "$acc_bundle/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices" \
+    "$acc_bundle/Contents/Frameworks/Sparkle.framework/XPCServices"
 # A stable signing identity preserves Keychain trust across rebuilds. Use an
 # explicit override, otherwise the single available Developer ID identity.
 acc_sign_identity=${ACC_SIGN_IDENTITY:-}
@@ -40,6 +45,10 @@ acc_sign_flags=(--force --sign "$acc_sign_identity")
 if [[ "$acc_sign_identity" != - ]]; then
     acc_sign_flags+=(--options runtime --timestamp)
 fi
+acc_sparkle="$acc_bundle/Contents/Frameworks/Sparkle.framework"
+codesign "${acc_sign_flags[@]}" "$acc_sparkle/Versions/B/Autoupdate"
+codesign "${acc_sign_flags[@]}" "$acc_sparkle/Versions/B/Updater.app"
+codesign "${acc_sign_flags[@]}" "$acc_sparkle"
 codesign "${acc_sign_flags[@]}" "$acc_bundle"
 codesign "${acc_sign_flags[@]}" --identifier dev.mo.acc.cli "$acc_stage/acc"
 # Stage a complete signed bundle; never truncate an executable that may be running.

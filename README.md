@@ -33,6 +33,7 @@ the same download works on Apple silicon and Intel.
 
 The release notes identify its signing status. Unnotarized releases may require
 **System Settings → Privacy & Security → Open Anyway** after the first launch attempt.
+Acc keeps itself up to date after that; turn off automatic updates in **Settings**.
 
 Open Acc, save the detected login, or choose **+ → Sign In with Browser…**.
 Browser sign-in uses the installed [Codex](https://github.com/openai/codex) or

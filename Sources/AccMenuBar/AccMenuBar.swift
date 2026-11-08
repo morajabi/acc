@@ -26,6 +26,10 @@ struct AccEntry {
         }
             .commands {
                 CommandGroup(after: .appInfo) {
+                    if delegate.model.updater.isAvailable {
+                        Button("Check for Updates…") { delegate.model.updater.checkForUpdates() }
+                            .disabled(!delegate.model.updater.canCheck)
+                    }
                     Button("Accounts") { delegate.showAccounts() }
                         .keyboardShortcut("a", modifiers: [.command, .shift])
                 }

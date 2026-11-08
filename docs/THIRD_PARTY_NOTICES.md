@@ -18,3 +18,5 @@ The ChatGPT and Claude provider marks in `Resources/Providers/` are copied from 
 Additional reference mappings: `ClaudeConfigPaths.swift`, `ClaudeScopedWeeklyLimitMapper.swift`, and `ClaudeOAuthUsageFetcher.swift` profile decoding. The UI and account-management architecture are independently implemented.
 
 Noninteractive Keychain handling was also cross-checked against CodexBar’s `KeychainNoUIQuery.swift` and `KeychainSecurity.swift`; Acc serializes and restores the legacy process interaction policy around each query.
+
+Acc.app embeds **Sparkle** 2.10.1 for automatic updates, copyright (c) Andy Matuschak and the Sparkle Project contributors, under the MIT license with additional notices for its bundled components. The complete license is in [licenses/Sparkle.txt](licenses/Sparkle.txt).

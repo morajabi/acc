@@ -13,4 +13,9 @@
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>SUFeedURL</key><string>https://github.com/morajabi/acc/releases/latest/download/appcast.xml</string>
+    <key>SUPublicEDKey</key><string>4Dbq5zFcYOrFDFx0VXX1mdk9IJJh8by1bwI0kqTH/o4=</string>
+    <key>SUEnableAutomaticChecks</key><true/>
+    <key>SUAutomaticallyUpdate</key><true/>
+    <key>SUScheduledCheckInterval</key><integer>21600</integer>
 </dict></plist>

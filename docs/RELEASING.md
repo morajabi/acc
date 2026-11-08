@@ -39,6 +39,27 @@ gh workflow run release.yml -F draft=true
 
 Publish the draft from GitHub when it looks right.
 
+## Automatic updates
+
+The app updates itself with [Sparkle](https://sparkle-project.org). Each release
+attaches **appcast.xml**, signed with the project's EdDSA key, and the app reads
+it from `releases/latest/download/appcast.xml` every six hours. Updates download
+and install automatically by default; **Settings → General → Updates** turns that
+off, and **Check for Updates…** is in the app menu and the popover's gear menu.
+
+The public key is `SUPublicEDKey` in `Resources/Info.plist`. The private key lives
+in the maintainer's login Keychain (account `acc`) and in the
+`SPARKLE_PRIVATE_KEY` Actions secret; releases fail without it. To restore the
+secret from the Keychain:
+
+```sh
+.build/artifacts/sparkle/Sparkle/bin/generate_keys --account acc -x sparkle-key
+gh secret set SPARKLE_PRIVATE_KEY < sparkle-key && rm sparkle-key
+```
+
+Losing the private key means installed copies can no longer verify updates, so
+keep the Keychain item backed up. Never commit it.
+
 ## Signing and notarization
 
 Without signing secrets, CI uses an **ad-hoc signature**. It verifies the bundle's

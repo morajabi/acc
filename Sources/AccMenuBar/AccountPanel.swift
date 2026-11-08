@@ -232,12 +232,20 @@ struct PanelFooter: View {
             Text(model.busy ? model.activityTitle ?? "Updating accounts…" : model.maintenanceStatus)
                 .lineLimit(1)
             Spacer(minLength: 4)
+            if model.updater.updateWaiting {
+                Button("Update Available") { model.updater.checkForUpdates() }
+                    .controlSize(.small).help("Review and install the new version of Acc")
+            }
             Button { model.refreshAll() } label: { Image(systemName: "arrow.clockwise") }
                 .buttonStyle(.borderless).disabled(model.busy || model.updating)
                 .help("Check accounts and update usage").accessibilityLabel("Refresh accounts")
             if compact {
                 Menu {
                     Button("Open Accounts Window") { model.openAccounts?() }
+                    if model.updater.isAvailable {
+                        Button("Check for Updates…") { model.updater.checkForUpdates() }
+                            .disabled(!model.updater.canCheck)
+                    }
                     SettingsLink { Text("Settings…") }.keyboardShortcut(",")
                     Divider()
                     Button("Quit Acc") { NSApp.terminate(nil) }.keyboardShortcut("q")

@@ -68,6 +68,10 @@ jobs:
           cmp dist/Acc.app/Contents/MacOS/AccMenuBar /Applications/Acc.app/Contents/MacOS/AccMenuBar
       - name: Package and optionally notarize
         run: ./scripts/package-release.sh
+      - name: Sign update feed
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: python3 scripts/make-appcast.py
       - name: Prepare installation notes
         run: |
           python3 - <<'PY'
@@ -98,6 +102,7 @@ jobs:
           path: |
             dist/release/Acc-macOS.zip
             dist/release/SHA256SUMS.txt
+            dist/release/appcast.xml
             dist/release/release-notes.md
           if-no-files-found: error
           retention-days: 14
@@ -131,10 +136,10 @@ jobs:
               echo 'This release is already public; publish a new version instead of replacing its assets.' >&2
               exit 1
             fi
-            gh release upload "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt --clobber
+            gh release upload "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt appcast.xml --clobber
             gh release edit "$ACC_RELEASE_TAG" --target "$GITHUB_SHA" --notes-file release-notes.md
           else
-            gh release create "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt \
+            gh release create "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt appcast.xml \
               --target "$GITHUB_SHA" --draft --title "Acc ${ACC_RELEASE_TAG#v}" \
               --notes-file release-notes.md --generate-notes
           fi

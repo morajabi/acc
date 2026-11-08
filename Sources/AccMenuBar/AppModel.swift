@@ -39,6 +39,7 @@ final class AppModel {
     var panelHeight: CGFloat = 580
     var loginAtStartup = SMAppService.mainApp.status == .enabled
     let isDemo: Bool
+    let updater: AppUpdater
     private let service = AccountService()
     private var loginTask: Task<Void, Never>?
     private var maintenance: Task<Void, Never>?
@@ -76,6 +77,7 @@ final class AppModel {
     }
     init(demo: Bool = CommandLine.arguments.contains("--demo")) {
         isDemo = demo
+        updater = AppUpdater(enabled: !demo && !CommandLine.arguments.contains("--render-previews"))
         presentation = CommandLine.arguments.contains("--window") ? .window
             : AppPresentation(rawValue: UserDefaults.standard.string(forKey: "presentation") ?? "") ?? .menuBar
         let defaults = UserDefaults.standard
