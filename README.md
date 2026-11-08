@@ -6,7 +6,7 @@ Acc lives in your Mac's menu bar. It keeps authentication fresh in the backgroun
 shows your remaining usage, and makes switching between personal and work
 accounts a click away.
 
-**[Download for macOS](https://github.com/morajabi/acc/releases/latest/download/Acc-macOS.zip)** · [Releases](https://github.com/morajabi/acc/releases) · [Contributing](CONTRIBUTING.md)
+**[Download for macOS](https://github.com/morajabi/acc/releases/latest/download/Acc-macOS.dmg)** · [Releases](https://github.com/morajabi/acc/releases) · [Contributing](CONTRIBUTING.md)
 
 <p align="center">
   <img src="docs/images/accounts.jpg" width="360" align="top" alt="Acc's compact ChatGPT account panel with remaining usage and renewal status">
@@ -28,7 +28,7 @@ from Claude Code.
 
 ## Get started
 
-Download, unzip, and move **Acc.app** to **Applications**. Requires **macOS 14+**;
+Download, open the disk image, and drag **Acc.app** to **Applications**. Requires **macOS 14+**;
 the same download works on Apple silicon and Intel.
 
 The release notes identify its signing status. Unnotarized releases may require

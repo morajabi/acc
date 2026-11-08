@@ -23,4 +23,18 @@ except BaseException:
         os.rename(previous, installed)
     raise
 PY
-print "Installed /Applications/Acc.app. Relaunch Acc to use this build."
+print "Installed /Applications/Acc.app."
+[[ -n ${CI:-} ]] && exit 0
+acc_running=$(pgrep -f '^/Applications/Acc.app/Contents/MacOS/AccMenuBar' || true)
+[[ -z $acc_running ]] && exit 0
+osascript -e 'tell application id "dev.mo.acc" to quit' >/dev/null 2>&1 || true
+for _ in {1..150}; do
+    pgrep -f '^/Applications/Acc.app/Contents/MacOS/AccMenuBar' >/dev/null || break
+    sleep 0.2
+done
+if pgrep -f '^/Applications/Acc.app/Contents/MacOS/AccMenuBar' >/dev/null; then
+    print -u2 'Acc is still finishing work; quit and reopen it to use this build.'
+else
+    open /Applications/Acc.app
+    print 'Relaunched Acc.'
+fi

@@ -78,7 +78,7 @@ jobs:
           import os
           from pathlib import Path
           notes = ['## Download', '',
-              'Download **Acc-macOS.zip**, unzip it, and move **Acc.app** to **Applications**. '
+              'Download **Acc-macOS.dmg** (or **Acc-macOS.zip**) and move **Acc.app** to **Applications**. '
               'Requires macOS 14 or later; one download supports Apple silicon and Intel Macs.', '',
               'Quit an older copy before replacing it. Your saved accounts stay in place.', '']
           if os.environ.get('ACC_NOTARY_PROFILE'):
@@ -101,6 +101,7 @@ jobs:
           name: Acc-release
           path: |
             dist/release/Acc-macOS.zip
+            dist/release/Acc-macOS.dmg
             dist/release/SHA256SUMS.txt
             dist/release/appcast.xml
             dist/release/release-notes.md
@@ -136,10 +137,10 @@ jobs:
               echo 'This release is already public; publish a new version instead of replacing its assets.' >&2
               exit 1
             fi
-            gh release upload "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt appcast.xml --clobber
+            gh release upload "$ACC_RELEASE_TAG" Acc-macOS.zip Acc-macOS.dmg SHA256SUMS.txt appcast.xml --clobber
             gh release edit "$ACC_RELEASE_TAG" --target "$GITHUB_SHA" --notes-file release-notes.md
           else
-            gh release create "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt appcast.xml \
+            gh release create "$ACC_RELEASE_TAG" Acc-macOS.zip Acc-macOS.dmg SHA256SUMS.txt appcast.xml \
               --target "$GITHUB_SHA" --draft --title "Acc ${ACC_RELEASE_TAG#v}" \
               --notes-file release-notes.md --generate-notes
           fi

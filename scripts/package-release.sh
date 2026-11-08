@@ -42,18 +42,26 @@ PY
     ditto -c -k --sequesterRsrc --keepParent "$acc_bundle" "$acc_release_dir/Acc-macOS.zip"
 fi
 
+acc_dmg_stage=$(mktemp -d)
+ditto "$acc_bundle" "$acc_dmg_stage/Acc.app"
+ln -s /Applications "$acc_dmg_stage/Applications"
+rm -f "$acc_release_dir/Acc-macOS.dmg"
+hdiutil create -quiet -volname Acc -srcfolder "$acc_dmg_stage" -format UDZO -ov "$acc_release_dir/Acc-macOS.dmg"
+rm -rf "$acc_dmg_stage"
+
 python3 - "$acc_release_dir" <<'PY'
 import hashlib
 from pathlib import Path
 import sys
 release = Path(sys.argv[1])
-archive = release / 'Acc-macOS.zip'
-hasher = hashlib.sha256()
-with archive.open('rb') as source:
-    for chunk in iter(lambda: source.read(1024 * 1024), b''):
-        hasher.update(chunk)
-digest = hasher.hexdigest()
-(release / 'SHA256SUMS.txt').write_text(f'{digest}  {archive.name}\n')
+lines = []
+for name in ['Acc-macOS.zip', 'Acc-macOS.dmg']:
+    hasher = hashlib.sha256()
+    with (release / name).open('rb') as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b''):
+            hasher.update(chunk)
+    lines.append(f'{hasher.hexdigest()}  {name}\n')
+(release / 'SHA256SUMS.txt').write_text(''.join(lines))
 PY
 print "Packaged Acc $acc_version for Apple silicon and Intel."
 print "$acc_release_dir/Acc-macOS.zip"

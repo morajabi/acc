@@ -3,7 +3,7 @@
 Every push to `main` is a release. GitHub Actions runs the tests, builds a
 universal Apple silicon/Intel app, installs and verifies the signed bundle on
 the runner, exercises offline CLI workflows, packages the app, and publishes
-**Acc-macOS.zip** and **SHA256SUMS.txt**. Pushes that change only docs,
+**Acc-macOS.dmg**, **Acc-macOS.zip**, and **SHA256SUMS.txt**. Pushes that change only docs,
 Markdown, or the license do not release, and neither do commits marked
 `[skip ci]`. Pull requests run CI without releasing.
 
