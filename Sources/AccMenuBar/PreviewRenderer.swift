@@ -10,7 +10,7 @@ import AccCore
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         for theme in ["light", "dark"] {
             let appearance = NSAppearance(named: theme == "light" ? .aqua : .darkAqua)!
-            for state in ["accounts", "claude", "current", "empty", "error", "keychain", "detached", "pending", "signin", "short", "tall", "uncertain", "window"] {
+            for state in ["accounts", "claude", "current", "empty", "error", "keychain", "detached", "pending", "signin", "short", "tall", "uncertain", "used", "window"] {
                 let model = AppModel(demo: true)
                 if state == "claude" { model.selectedProvider = .claude }
                 if state == "current" {
@@ -36,6 +36,7 @@ import AccCore
                     model.accounts[0].message = AccError.refreshUncertain.localizedDescription
                     model.accounts[0].nextRefreshAt = nil
                 }
+                if state == "used" { model.setUsageDisplay(.used) }
                 if state == "detached" { model.accounts[0].isPaused = true }
                 if state == "pending" {
                     model.pending = try JSONDecoder().decode([PendingSignIn].self, from: Data("""
@@ -49,7 +50,7 @@ import AccCore
                 appearance: appearance, to: directory.appendingPathComponent("settings-\(theme).png"))
             try renderMenuBar(theme: theme, to: directory.appendingPathComponent("menubar-\(theme).png"))
         }
-        print("Rendered 30 credential-free previews to \(directory.path)")
+        print("Rendered 32 credential-free previews to \(directory.path)")
     }
     /// Every icon style, including a provider that reports only a weekly window
     /// and one without usage, on the menu bar's own tint.

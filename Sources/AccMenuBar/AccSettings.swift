@@ -46,8 +46,11 @@ private struct GeneralSettings: View {
                 }.disabled(model.menuBarStyle == .symbol)
             }.disabled(model.presentation != .menuBar)
             Section {
-                Toggle("Show remaining usage", isOn: Binding(get: { model.preferences.showUsage }, set: { model.setPreference(\.showUsage, $0) }))
+                Toggle("Show usage", isOn: Binding(get: { model.preferences.showUsage }, set: { model.setPreference(\.showUsage, $0) }))
                     .disabled(model.busy)
+                Picker("Show usage as", selection: Binding(get: { model.usageDisplay }, set: { model.setUsageDisplay($0) })) {
+                    ForEach(UsageDisplay.allCases) { Text($0.title).tag($0) }
+                }.pickerStyle(.segmented).disabled(!model.preferences.showUsage)
             } footer: { Text("Usage updates in the background and when you open Acc. Automatic renewal is independent.") }
             if model.updater.isAvailable {
                 Section("Updates") {

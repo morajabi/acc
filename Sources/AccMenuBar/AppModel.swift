@@ -36,6 +36,7 @@ final class AppModel {
     var presentation: AppPresentation
     var menuBarStyle: MenuBarStyle
     var menuBarProviders: Set<Provider>
+    var usageDisplay: UsageDisplay
     var panelHeight: CGFloat = 580
     var loginAtStartup = SMAppService.mainApp.status == .enabled
     let isDemo: Bool
@@ -84,6 +85,7 @@ final class AppModel {
         menuBarStyle = demo ? .bars : MenuBarStyle(rawValue: defaults.string(forKey: "menuBarStyle") ?? "") ?? .bars
         let hidden = demo ? [] : defaults.stringArray(forKey: "menuBarHiddenProviders") ?? []
         menuBarProviders = Set(Provider.allCases.filter { !hidden.contains($0.rawValue) })
+        usageDisplay = demo ? .remaining : UsageDisplay(rawValue: defaults.string(forKey: "usageDisplay") ?? "") ?? .remaining
         if demo {
             loginAtStartup = true
             accounts = DemoAccounts.make()
@@ -293,6 +295,10 @@ final class AppModel {
     func setMenuBarStyle(_ value: MenuBarStyle) {
         menuBarStyle = value
         if !isDemo { UserDefaults.standard.set(value.rawValue, forKey: "menuBarStyle") }
+    }
+    func setUsageDisplay(_ value: UsageDisplay) {
+        usageDisplay = value
+        if !isDemo { UserDefaults.standard.set(value.rawValue, forKey: "usageDisplay") }
     }
     func setMenuBarProvider(_ provider: Provider, visible: Bool) {
         if visible { menuBarProviders.insert(provider) } else { menuBarProviders.remove(provider) }

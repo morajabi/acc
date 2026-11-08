@@ -148,7 +148,7 @@ struct CurrentLoginRow: View {
                 }
                 if model.preferences.showUsage {
                     UsageSection(usage: model.observedUsage[login.provider],
-                        stale: model.observedErrors[login.provider] != nil)
+                        stale: model.observedErrors[login.provider] != nil, display: model.usageDisplay)
                     if let error = model.observedErrors[login.provider] {
                         Text(error).font(.caption).foregroundStyle(.secondary)
                     }

@@ -5,13 +5,14 @@ import AccCore
 struct UsageSection: View {
     let usage: UsageSnapshot?
     let stale: Bool
+    var display: UsageDisplay = .remaining
 
     var body: some View {
         if let usage, !usage.windows.isEmpty {
             TimelineView(.periodic(from: .now, by: 30)) { context in
                 let stale = stale || usage.isStale(at: context.date)
                 Grid(alignment: .leading, horizontalSpacing: 8, verticalSpacing: 6) {
-                    ForEach(usage.orderedWindows) { UsageRow(window: $0, stale: stale, now: context.date) }
+                    ForEach(usage.orderedWindows) { UsageRow(window: $0, stale: stale, display: display, now: context.date) }
                 }
                 .help("Updated \(usage.fetchedAt.formatted(date: .omitted, time: .shortened))\(stale ? " · may be out of date" : "")")
             }
@@ -24,6 +25,7 @@ struct UsageSection: View {
 private struct UsageRow: View {
     let window: UsageWindow
     let stale: Bool
+    let display: UsageDisplay
     let now: Date
 
     var body: some View {
@@ -31,10 +33,10 @@ private struct UsageRow: View {
         GridRow {
             Text(window.shortTitle).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 .frame(minWidth: 30, idealWidth: nil, alignment: .leading)
-            UsageMeter(fraction: window.remainingPercent / 100,
+            UsageMeter(fraction: window.percent(display) / 100,
                 tint: stale ? Color.secondary : low ? Color.orange : Color.accentColor)
                 .frame(minWidth: 60)
-            Text("\(Int(window.remainingPercent))%").monospacedDigit()
+            Text(window.percentLabel(display)).monospacedDigit()
                 .foregroundStyle(stale ? .secondary : low ? Color.orange : .primary)
                 .gridColumnAlignment(.trailing)
             Text(resetText).monospacedDigit().foregroundStyle(.secondary)
@@ -43,7 +45,7 @@ private struct UsageRow: View {
         .font(.caption)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(window.title)
-        .accessibilityValue("\(Int(window.remainingPercent)) percent remaining\(stale ? ", may be out of date" : ""), \(resetDescription)")
+        .accessibilityValue("\(Int(window.percent(display))) percent \(display == .remaining ? "remaining" : "used")\(stale ? ", may be out of date" : ""), \(resetDescription)")
         .help(window.resetsAt.map { "\(window.title) resets \($0.formatted(date: .abbreviated, time: .shortened))" } ?? window.title)
     }
 

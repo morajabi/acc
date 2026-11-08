@@ -28,7 +28,8 @@ struct AccountRow: View {
                     actions
                 }
                 if model.preferences.showUsage {
-                    UsageSection(usage: account.usage, stale: account.usageMessage != nil || account.isPaused == true)
+                    UsageSection(usage: account.usage, stale: account.usageMessage != nil || account.isPaused == true,
+                                 display: model.usageDisplay)
                 }
                 if let issue = AccountIssue.of(account, keepFresh: model.preferences.keepFresh,
                                                retryUncertain: model.preferences.retryUncertainRefresh, now: context.date) {

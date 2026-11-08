@@ -16,6 +16,21 @@ enum MenuBarStyle: String, CaseIterable, Identifiable {
     var showsUsage: Bool { self == .bars || self == .percent }
 }
 
+enum UsageDisplay: String, CaseIterable, Identifiable {
+    case remaining, used
+    var id: String { rawValue }
+    var title: String { self == .remaining ? "Remaining" : "Used" }
+}
+
+extension UsageWindow {
+    func percent(_ display: UsageDisplay) -> Double {
+        display == .remaining ? remainingPercent : 100 - remainingPercent
+    }
+    func percentLabel(_ display: UsageDisplay) -> String {
+        "\(Int(percent(display).rounded(.down)))% \(display == .remaining ? "left" : "used")"
+    }
+}
+
 extension UsageSnapshot {
     /// The windows that limit everyday use, shortest first. Providers omit
     /// windows that do not apply to a plan, so a missing window is not 0%.
@@ -52,19 +67,19 @@ extension UsageSnapshot {
             Cell(provider: provider, windows: model.activeUsage(provider)?.primaryWindows ?? [],
                  stale: model.activeUsageIsStale(provider))
         }
-        return make(cells: cells, style: style, attention: model.needsAttention)
+        return make(cells: cells, style: style, display: model.usageDisplay, attention: model.needsAttention)
     }
 
-    static func make(cells: [Cell], style: MenuBarStyle, attention: Bool) -> NSImage {
+    static func make(cells: [Cell], style: MenuBarStyle, display: UsageDisplay = .remaining, attention: Bool) -> NSImage {
         if style == .symbol { return symbol(attention: attention) }
-        let widths = cells.map { width(of: $0, style: style) }
+        let widths = cells.map { width(of: $0, style: style, display: display) }
         let dot: CGFloat = attention ? 6 : 0
         let total = widths.reduce(0, +) + gap * CGFloat(max(0, cells.count - 1)) + dot
         let image = NSImage(size: NSSize(width: max(total, 1), height: height), flipped: true) { _ in
             guard let context = NSGraphicsContext.current?.cgContext else { return false }
             var x: CGFloat = 0
             for (cell, width) in zip(cells, widths) {
-                draw(cell, style: style, at: x, in: context)
+                draw(cell, style: style, display: display, at: x, in: context)
                 x += width + gap
             }
             if attention {
@@ -78,20 +93,20 @@ extension UsageSnapshot {
         return image
     }
 
-    private static func width(of cell: Cell, style: MenuBarStyle) -> CGFloat {
+    private static func width(of cell: Cell, style: MenuBarStyle, display: UsageDisplay) -> CGFloat {
         switch style {
         case .bars: cell.windows.isEmpty ? mark : mark + 3 + barWidth
-        case .percent: mark + 2 + ceil(percentText(cell).size(withAttributes: [.font: font]).width)
+        case .percent: mark + 2 + ceil(percentText(cell, display: display).size(withAttributes: [.font: font]).width)
         default: mark
         }
     }
 
-    private static func percentText(_ cell: Cell) -> String {
+    private static func percentText(_ cell: Cell, display: UsageDisplay) -> String {
         cell.windows.min(by: { $0.remainingPercent < $1.remainingPercent })
-            .map { "\(Int($0.remainingPercent.rounded(.down)))%" } ?? "–"
+            .map { "\(Int($0.percent(display).rounded(.down)))%" } ?? "–"
     }
 
-    private static func draw(_ cell: Cell, style: MenuBarStyle, at x: CGFloat, in context: CGContext) {
+    private static func draw(_ cell: Cell, style: MenuBarStyle, display: UsageDisplay, at x: CGFloat, in context: CGContext) {
         let path = ProviderMark(provider: cell.provider).path(in: CGRect(x: x, y: 1, width: mark, height: mark))
         context.setFillColor(NSColor.black.cgColor)
         context.addPath(path.cgPath); context.fillPath()
@@ -107,7 +122,7 @@ extension UsageSnapshot {
                 let track = CGRect(x: x + mark + 3, y: y, width: barWidth, height: barHeight)
                 context.setFillColor(NSColor.black.withAlphaComponent(0.25).cgColor)
                 context.addPath(CGPath(roundedRect: track, cornerWidth: 1.5, cornerHeight: 1.5, transform: nil)); context.fillPath()
-                let fraction = max(0, min(1, window.remainingPercent / 100))
+                let fraction = max(0, min(1, window.percent(display) / 100))
                 if fraction > 0 {
                     let fill = CGRect(x: track.minX, y: track.minY, width: max(barHeight, track.width * fraction), height: barHeight)
                     context.setFillColor(ink.cgColor)
@@ -116,7 +131,7 @@ extension UsageSnapshot {
                 y += barHeight + spacing
             }
         case .percent:
-            let text = percentText(cell) as NSString
+            let text = percentText(cell, display: display) as NSString
             let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: ink]
             let size = text.size(withAttributes: attributes)
             text.draw(at: NSPoint(x: x + mark + 2, y: (height - size.height) / 2), withAttributes: attributes)
@@ -152,7 +167,7 @@ extension UsageSnapshot {
                 lines.append("\(name): usage unavailable")
                 continue
             }
-            let limits = usage.primaryWindows.map { "\($0.shortTitle) \(Int($0.remainingPercent))% left" }
+            let limits = usage.primaryWindows.map { "\($0.shortTitle) \($0.percentLabel(model.usageDisplay))" }
                 .joined(separator: " · ")
             lines.append("\(name): \(limits)\(model.activeUsageIsStale(provider) ? " (stale)" : "")")
         }
