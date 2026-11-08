@@ -256,9 +256,15 @@ public struct NativeCredentialStore: ActiveCredentialStore {
             catch { problems.append(error as? AccError ?? .unreadableLogin(.claude)) }
         }
         if let keychainError { throw keychainError }
-        guard !problems.isEmpty else { return nil }
         let ranked: [AccError] = [.loginEnded(.claude), .loginNotFound(.claude)]
-        return .unusable(ranked.first(where: problems.contains) ?? .unreadableLogin(.claude))
+        let reason = problems.isEmpty ? nil : ranked.first(where: problems.contains) ?? .unreadableLogin(.claude)
+        if reason == nil || reason == .loginNotFound(.claude), claudeDesktopSignedIn() { return .unusable(.claudeDesktopOnly) }
+        return reason.map(NativeLogin.unusable)
+    }
+    private func claudeDesktopSignedIn() -> Bool {
+        guard let data = try? Data(contentsOf: paths.claudeDesktopConfig),
+              let config = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return false }
+        return ["oauth:tokenCacheV2", "oauth:tokenCache"].contains { !((config[$0] as? String) ?? "").isEmpty }
     }
     private func claudeFileData() throws -> Data? {
         let url = file(.claude)

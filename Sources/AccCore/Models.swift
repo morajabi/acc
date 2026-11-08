@@ -157,9 +157,10 @@ public enum AccError: Error, LocalizedError, Sendable, Equatable {
     case network, http(Int), rateLimited(Date), storage, keychain(Int32), externalChange
     case unsupportedStorage, executableMissing(Provider), loginFailed, loginTimedOut
     case identityMismatch, invalidArgument(String), pendingSignIn(UUID), unsupportedAuthentication
-    case loginNotFound(Provider), loginEnded(Provider), unreadableLogin(Provider), noRefreshToken(Provider)
+    case loginNotFound(Provider), loginEnded(Provider), unreadableLogin(Provider), noRefreshToken(Provider), claudeDesktopOnly
     public var errorDescription: String? {
         switch self {
+        case .claudeDesktopOnly: "Signed in to Claude desktop only — sign in with Claude Code (`claude`) or use + → Sign In with Browser…"
         case .loginNotFound(let provider): "No \(provider.clientName) login found. \(provider.signInAdvice)"
         case .loginEnded(let provider): "\(provider.clientName)’s saved login has ended. \(provider.signInAdvice)"
         case .unreadableLogin(let provider): "Acc could not read \(provider.clientName)’s saved login. \(provider.signInAdvice)"

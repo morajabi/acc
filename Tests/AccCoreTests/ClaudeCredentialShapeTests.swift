@@ -238,3 +238,70 @@ func claudeExpiryAcceptsMillisecondsSecondsAndDates(fragment: String, expected: 
     #expect(AccPaths(home: URL(fileURLWithPath: "/tmp/acc-fixture-home"), environment: ["USER": "fixture.user"]).claudeKeychainAccount == "fixture.user")
     #expect(AccPaths(home: URL(fileURLWithPath: "/tmp/acc-fixture-home"), environment: ["USER": "fixture user"]).claudeKeychainAccount == "claude-code-user")
 }
+
+private func storeDesktopConfig(_ home: ShapeHome, signedIn: Bool) throws -> Data {
+    var config: [String: Any] = ["locale": "en-US", "lastKnownAccountUuid": "fixture-desktop-account"]
+    if signedIn {
+        config["oauth:tokenCacheV2"] = Data("v10fixture-encrypted-cache".utf8).base64EncodedString()
+        config["oauth:tokenCache"] = Data("v10fixture-legacy-cache".utf8).base64EncodedString()
+    }
+    let data = try object(config)
+    try privateWrite(data, to: home.env.paths.claudeDesktopConfig)
+    return data
+}
+
+@Test func claudeDesktopConfigLivesInTheDesktopAppSupportFolder() {
+    let paths = AccPaths(home: URL(fileURLWithPath: "/tmp/acc-fixture-home"), environment: ["CLAUDE_CONFIG_DIR": "/tmp/acc-fixture-config"])
+    #expect(paths.claudeDesktopConfig.path == "/tmp/acc-fixture-home/Library/Application Support/Claude/config.json")
+}
+
+@Test func desktopOnlyLoginIsExplainedWithoutReadingItsTokens() async throws {
+    let home = ShapeHome(); defer { home.env.cleanup() }
+    let before = try storeDesktopConfig(home, signedIn: true)
+    guard case .unusable(let reason)? = try home.native.inspect(.claude) else { Issue.record("expected an unusable login"); return }
+    #expect(reason == .claudeDesktopOnly)
+    #expect(try home.native.read(.claude) == nil)
+    let message = safeMessage(reason)
+    #expect(message == "Signed in to Claude desktop only — sign in with Claude Code (`claude`) or use + → Sign In with Browser…")
+    #expect(!message.contains("fixture"))
+    let service = AccountService(paths: home.env.paths, active: home.native, client: home.env.client)
+    #expect(try await service.currentLogins([.claude]).first?.message == message)
+    await #expect(throws: AccError.claudeDesktopOnly) { _ = try await service.importCurrent(.claude) }
+    #expect(try Data(contentsOf: home.env.paths.claudeDesktopConfig) == before)
+}
+
+@Test func desktopOnlyMessageReplacesMcpOnlyClaudeCodeState() throws {
+    let home = ShapeHome(); defer { home.env.cleanup() }
+    _ = try storeDesktopConfig(home, signedIn: true)
+    try home.storeKeychain(object(["mcpOAuth": mcpState]))
+    guard case .unusable(let reason)? = try home.native.inspect(.claude) else { Issue.record("expected an unusable login"); return }
+    #expect(reason == .claudeDesktopOnly)
+}
+
+@Test func claudeCodeStateTakesPrecedenceOverDesktopLogin() throws {
+    let home = ShapeHome(); defer { home.env.cleanup() }
+    let before = try storeDesktopConfig(home, signedIn: true)
+    try home.storeKeychain(object(["claudeAiOauth": oauth(["accessToken": "", "refreshToken": ""])]))
+    guard case .unusable(let reason)? = try home.native.inspect(.claude) else { Issue.record("expected an unusable login"); return }
+    #expect(reason == .loginEnded(.claude))
+    try home.storeKeychain(claude("alice").document)
+    #expect(try home.native.read(.claude)?.credential.identity.userID == "alice")
+    try home.native.replace(claude("bob"), expected: home.native.read(.claude))
+    #expect(try home.native.read(.claude)?.credential.identity.userID == "bob")
+    #expect(try Data(contentsOf: home.env.paths.claudeDesktopConfig) == before)
+}
+
+@Test func signedOutDesktopAppIsNotReported() throws {
+    let home = ShapeHome(); defer { home.env.cleanup() }
+    _ = try storeDesktopConfig(home, signedIn: false)
+    #expect(try home.native.inspect(.claude) == nil)
+    try privateWrite(Data("not json".utf8), to: home.env.paths.claudeDesktopConfig)
+    #expect(try home.native.inspect(.claude) == nil)
+}
+
+@Test func lockedClaudeCodeKeychainIsNotHiddenByDesktopLogin() throws {
+    let home = ShapeHome(); defer { home.env.cleanup() }
+    _ = try storeDesktopConfig(home, signedIn: true)
+    let native = NativeCredentialStore(paths: home.env.paths, keychain: ThrowingKeychain())
+    #expect(throws: AccError.keychain(-25308)) { _ = try native.inspect(.claude) }
+}
