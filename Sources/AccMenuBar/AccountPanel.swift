@@ -82,11 +82,8 @@ struct PanelHeader: View {
     @Bindable var model: AppModel
 
     var body: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 10) {
             ProviderPicker(selection: $model.selectedProvider).frame(height: 28)
-            Button { model.refreshAll() } label: { Image(systemName: "arrow.clockwise") }
-                .buttonStyle(.borderless).help("Check accounts and update usage")
-                .accessibilityLabel("Refresh accounts").disabled(model.busy || model.updating)
             AddAccountMenu(model: model)
         }.padding(.horizontal, 14).padding(.vertical, 10)
     }
@@ -104,7 +101,7 @@ struct AddAccountMenu: View {
             Divider()
             Button("Import from File…") { model.importFile(model.selectedProvider) }
         } label: { Image(systemName: "plus") }
-        .menuStyle(.borderlessButton).fixedSize().disabled(model.busy)
+        .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().disabled(model.busy)
         .help("Add an account").accessibilityLabel("Add account")
     }
 }
@@ -117,7 +114,7 @@ struct EmptyAccountsView: View {
         VStack(spacing: 12) {
             ProviderMark(provider: provider).fill(.secondary).frame(width: 36, height: 36)
                 .accessibilityHidden(true)
-            Text("Add a \(provider == .codex ? "ChatGPT" : "Claude") account").font(.title3.weight(.semibold))
+            Text("Add a \(provider.displayName) account").font(.title3.weight(.semibold))
             Text("Keep your login fresh and switch accounts when you need to.")
                 .foregroundStyle(.secondary).multilineTextAlignment(.center)
             Button("Sign In with Browser…") { model.signIn(provider) }
@@ -133,31 +130,36 @@ struct CurrentLoginRow: View {
     let model: AppModel
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 8) {
             if let identity = login.identity {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(identity.email ?? "Current \(login.provider.title) account").font(.headline).textSelection(.enabled)
-                    Text("Active · Not managed by Acc").font(.caption).foregroundStyle(.secondary)
+                HStack(alignment: .center, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(identity.email ?? "Current \(login.provider.displayName) account")
+                            .font(.headline).lineLimit(1).truncationMode(.middle).textSelection(.enabled)
+                        HStack(spacing: 4) {
+                            Circle().fill(.green).frame(width: 6, height: 6).accessibilityHidden(true)
+                            Text("Active · not saved in Acc")
+                        }.font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Button("Save") { model.saveCurrent(login.provider) }
+                        .controlSize(.small).buttonStyle(.borderedProminent).disabled(model.busy)
+                        .help("Save this account so Acc keeps it fresh and can switch back to it")
                 }
                 if model.preferences.showUsage {
                     UsageSection(usage: model.observedUsage[login.provider],
-                        stale: model.observedErrors[login.provider] != nil, expanded: true)
+                        stale: model.observedErrors[login.provider] != nil)
                     if let error = model.observedErrors[login.provider] {
                         Text(error).font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                HStack {
-                    Text("Save this account to keep it fresh.").font(.caption).foregroundStyle(.secondary)
-                    Spacer()
-                    Button("Save Account") { model.saveCurrent(login.provider) }
-                        .buttonStyle(.borderedProminent).disabled(model.busy)
-                }
             } else if let message = login.message {
-                Label("Current login unavailable", systemImage: "exclamationmark.triangle")
+                Label("Current login unavailable", systemImage: "exclamationmark.triangle.fill")
                     .font(.headline).foregroundStyle(.orange)
-                Text(message).font(.callout).foregroundStyle(.secondary)
+                Text(message).font(.caption).foregroundStyle(.secondary)
                 if login.requiresKeychainAccess == true {
-                    Button("Allow Keychain Access…") { model.authorizeKeychain(login.provider) }.disabled(model.busy)
+                    Button("Allow Keychain Access…") { model.authorizeKeychain(login.provider) }
+                        .controlSize(.small).disabled(model.busy)
                 }
             }
         }.accountCard()
@@ -204,7 +206,7 @@ struct PendingLoginRow: View {
                 Menu {
                     if pending.replacingID != nil { Button("Add as New Account") { model.finishPending(pending.id, asNew: true) } }
                     Button("Discard…", role: .destructive) { discard = true }
-                } label: { Image(systemName: "ellipsis") }.menuStyle(.borderlessButton).fixedSize()
+                } label: { Image(systemName: "ellipsis.circle") }.menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
                     .accessibilityLabel("Pending sign-in actions")
             }.disabled(model.busy)
         }.accountCard()
@@ -220,26 +222,30 @@ struct PanelFooter: View {
     let compact: Bool
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 6) {
             if model.busy || model.updating { ProgressView().controlSize(.mini) }
             else {
                 Image(systemName: model.needsAttention ? "exclamationmark.circle" : model.preferences.keepFresh ? "checkmark.circle" : "pause.circle")
                     .foregroundStyle(model.needsAttention ? Color.orange : Color.secondary)
+                    .accessibilityHidden(true)
             }
             Text(model.busy ? model.activityTitle ?? "Updating accounts…" : model.maintenanceStatus)
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                .lineLimit(1)
             Spacer(minLength: 4)
+            Button { model.refreshAll() } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.borderless).disabled(model.busy || model.updating)
+                .help("Check accounts and update usage").accessibilityLabel("Refresh accounts")
             if compact {
-                Button { model.openAccounts?() } label: { Image(systemName: "macwindow") }
-                    .buttonStyle(.borderless).help("Open Accounts window").accessibilityLabel("Open Accounts window")
                 Menu {
+                    Button("Open Accounts Window") { model.openAccounts?() }
                     SettingsLink { Text("Settings…") }.keyboardShortcut(",")
                     Divider()
                     Button("Quit Acc") { NSApp.terminate(nil) }.keyboardShortcut("q")
                 } label: { Image(systemName: "gearshape") }
-                .menuStyle(.borderlessButton).fixedSize().accessibilityLabel("App options")
+                .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().accessibilityLabel("App options")
             }
         }
+        .font(.caption).foregroundStyle(.secondary)
         .help(model.lastMaintenanceAt.map { "Last checked \($0.formatted(date: .abbreviated, time: .shortened)). Checks every minute and after wake or reconnect." }
             ?? "Saved accounts are checked every minute and after wake or reconnect.")
         .padding(.horizontal, 14).padding(.vertical, 8)
@@ -268,7 +274,7 @@ struct PanelResizeHandle: View {
 
 private struct AccountCard: ViewModifier {
     func body(content: Content) -> some View {
-        content.padding(.horizontal, 14).padding(.vertical, 12)
+        content.padding(.horizontal, 14).padding(.vertical, 10)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

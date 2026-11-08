@@ -60,7 +60,7 @@ Native storage behavior is exercised against temporary files, an injected Keycha
 The v0.2 series uses 104 Swift tests, the offline CLI smoke suite, a release build,
 bundle signature verification, and plist validation. The CLI suite exercises
 real subprocess supervision with fake provider CLIs, signal cancellation, pending
-login recovery, and shutdown. Static renders cover 28 layouts across light and
+login recovery, and shutdown. Static renders cover 30 layouts across light and
 dark appearances, including short and tall panels, a regular window, empty,
 paused, pending, uncertain, and sign-in-needed states.
 Static renders check layout; README screenshots capture the actual native

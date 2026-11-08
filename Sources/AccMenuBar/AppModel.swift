@@ -34,6 +34,8 @@ final class AppModel {
     var resizePanel: ((CGFloat) -> Void)?
     var changePresentation: (() -> Void)?
     var presentation: AppPresentation
+    var menuBarStyle: MenuBarStyle
+    var menuBarProviders: Set<Provider>
     var panelHeight: CGFloat = 580
     var loginAtStartup = SMAppService.mainApp.status == .enabled
     let isDemo: Bool
@@ -76,6 +78,10 @@ final class AppModel {
         isDemo = demo
         presentation = CommandLine.arguments.contains("--window") ? .window
             : AppPresentation(rawValue: UserDefaults.standard.string(forKey: "presentation") ?? "") ?? .menuBar
+        let defaults = UserDefaults.standard
+        menuBarStyle = demo ? .bars : MenuBarStyle(rawValue: defaults.string(forKey: "menuBarStyle") ?? "") ?? .bars
+        let hidden = demo ? [] : defaults.stringArray(forKey: "menuBarHiddenProviders") ?? []
+        menuBarProviders = Set(Provider.allCases.filter { !hidden.contains($0.rawValue) })
         if demo {
             loginAtStartup = true
             accounts = DemoAccounts.make()
@@ -281,6 +287,17 @@ final class AppModel {
         presentation = value
         if !isDemo { UserDefaults.standard.set(value.rawValue, forKey: "presentation") }
         changePresentation?()
+    }
+    func setMenuBarStyle(_ value: MenuBarStyle) {
+        menuBarStyle = value
+        if !isDemo { UserDefaults.standard.set(value.rawValue, forKey: "menuBarStyle") }
+    }
+    func setMenuBarProvider(_ provider: Provider, visible: Bool) {
+        if visible { menuBarProviders.insert(provider) } else { menuBarProviders.remove(provider) }
+        if !isDemo {
+            let hidden = Provider.allCases.filter { !menuBarProviders.contains($0) }.map(\.rawValue)
+            UserDefaults.standard.set(hidden, forKey: "menuBarHiddenProviders")
+        }
     }
     func configureLoginAtStartup() {
         guard !isDemo else { return }

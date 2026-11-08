@@ -45,10 +45,55 @@ import AccCore
                 try snapshot(AccountPanel(model: model, compact: state != "window"), size: NSSize(width: state == "window" ? 440 : 380, height: state == "short" ? 320 : state == "tall" ? 740 : state == "claude" ? 320 : 490),
                     appearance: appearance, material: state != "window", to: directory.appendingPathComponent("\(state)-\(theme).png"))
             }
-            try snapshot(AccSettings(model: AppModel(demo: true)), size: NSSize(width: 480, height: 440),
+            try snapshot(AccSettings(model: AppModel(demo: true)), size: NSSize(width: 480, height: 560),
                 appearance: appearance, to: directory.appendingPathComponent("settings-\(theme).png"))
+            try renderMenuBar(theme: theme, to: directory.appendingPathComponent("menubar-\(theme).png"))
         }
-        print("Rendered 28 credential-free previews to \(directory.path)")
+        print("Rendered 30 credential-free previews to \(directory.path)")
+    }
+    /// Every icon style, including a provider that reports only a weekly window
+    /// and one without usage, on the menu bar's own tint.
+    private static func renderMenuBar(theme: String, to url: URL) throws {
+        func window(_ id: String, _ remaining: Double) -> UsageWindow {
+            UsageWindow(id: id, title: id, usedPercent: 100 - remaining)
+        }
+        let cells = [
+            StatusIcon.Cell(provider: .codex, windows: [window("weekly", 53)], stale: false),
+            StatusIcon.Cell(provider: .claude, windows: [window("fiveHour", 71), window("weekly", 34)], stale: false),
+        ]
+        let rows: [NSImage] = [
+            StatusIcon.make(cells: cells, style: .bars, attention: false),
+            StatusIcon.make(cells: cells, style: .percent, attention: false),
+            StatusIcon.make(cells: cells, style: .logos, attention: false),
+            StatusIcon.make(cells: cells, style: .symbol, attention: false),
+            StatusIcon.make(cells: [StatusIcon.Cell(provider: .codex, windows: [], stale: true), cells[1]], style: .bars, attention: true),
+        ]
+        let scale: CGFloat = 4, rowHeight: CGFloat = 24
+        let size = NSSize(width: 120, height: rowHeight * CGFloat(rows.count))
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale),
+            pixelsHigh: Int(size.height * scale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { throw AccError.storage }
+        bitmap.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+        let dark = theme == "dark"
+        (dark ? NSColor(white: 0.16, alpha: 1) : NSColor(white: 0.93, alpha: 1)).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        for (index, image) in rows.enumerated() {
+            let y = size.height - rowHeight * CGFloat(index + 1) + (rowHeight - image.size.height) / 2
+            let rect = NSRect(x: 8, y: y, width: image.size.width, height: image.size.height)
+            // Tint the template the way the menu bar does: ink where the image is opaque.
+            let tinted = NSImage(size: image.size, flipped: false) { bounds in
+                image.draw(in: bounds)
+                (dark ? NSColor.white : NSColor.black).set()
+                bounds.fill(using: .sourceAtop)
+                return true
+            }
+            tinted.draw(in: rect)
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        guard let data = bitmap.representation(using: .png, properties: [:]) else { throw AccError.storage }
+        try data.write(to: url)
     }
     private static func snapshot<V: View>(_ content: V, size: NSSize, appearance: NSAppearance, material: Bool = false, to url: URL) throws {
         let window = NSWindow(contentRect: NSRect(origin: .zero, size: size),

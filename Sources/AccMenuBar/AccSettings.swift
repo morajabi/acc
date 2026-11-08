@@ -9,7 +9,7 @@ struct AccSettings: View {
         TabView {
             GeneralSettings(model: model).tabItem { Label("General", systemImage: "gearshape") }
             RenewalSettings(model: model).tabItem { Label("Renewal", systemImage: "arrow.triangle.2.circlepath") }
-        }.frame(width: 480, height: 440)
+        }.frame(width: 480, height: 560)
             .onAppear { model.updateLoginStatus() }
     }
 }
@@ -32,6 +32,19 @@ private struct GeneralSettings: View {
                     }
                 }
             } footer: { Text("Acc keeps your saved accounts fresh while it’s running.") }
+            Section("Menu bar icon") {
+                LabeledContent("Preview") {
+                    Image(nsImage: StatusIcon.make(model: model)).renderingMode(.template)
+                        .foregroundStyle(.primary).accessibilityLabel("Menu bar icon preview")
+                }
+                Picker("Show", selection: Binding(get: { model.menuBarStyle }, set: { model.setMenuBarStyle($0) })) {
+                    ForEach(MenuBarStyle.allCases) { Text($0.title).tag($0) }
+                }
+                ForEach(Provider.allCases) { provider in
+                    Toggle("Include \(provider.displayName)", isOn: Binding(get: { model.menuBarProviders.contains(provider) },
+                        set: { model.setMenuBarProvider(provider, visible: $0) }))
+                }.disabled(model.menuBarStyle == .symbol)
+            }.disabled(model.presentation != .menuBar)
             Section {
                 Toggle("Show remaining usage", isOn: Binding(get: { model.preferences.showUsage }, set: { model.setPreference(\.showUsage, $0) }))
                     .disabled(model.busy)
