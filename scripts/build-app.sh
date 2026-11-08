@@ -15,6 +15,10 @@ mkdir -p "$acc_bundle/Contents/MacOS" "$acc_bundle/Contents/Resources"
 cp "$acc_bin_dir/AccMenuBar" "$acc_bundle/Contents/MacOS/AccMenuBar"
 cp "$acc_bin_dir/acc" "$acc_stage/acc"
 cp Resources/Info.plist "$acc_bundle/Contents/Info.plist"
+acc_version=$(sed -nE 's/.*current = "([^"]+)".*/\1/p' Sources/AccCore/Version.swift)
+acc_build_number=${ACC_BUILD_NUMBER:-$(git rev-list --count HEAD 2>/dev/null || print 0)}
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $acc_version" "$acc_bundle/Contents/Info.plist"
+/usr/libexec/PlistBuddy -c "Set :CFBundleVersion $acc_build_number" "$acc_bundle/Contents/Info.plist"
 swift scripts/make-icon.swift "$acc_bundle/Contents/Resources/Acc.icns"
 cp docs/THIRD_PARTY_NOTICES.md "$acc_bundle/Contents/Resources/ThirdPartyNotices.md"
 cp docs/licenses/CodexBar.txt "$acc_bundle/Contents/Resources/CodexBar-License.txt"

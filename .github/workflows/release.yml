@@ -2,55 +2,47 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
   workflow_dispatch:
     inputs:
-      tag:
-        description: Existing version tag to release (for example v0.2.0)
-        required: true
-        type: string
       draft:
         description: Leave the completed release as a draft
-        default: true
+        default: false
         type: boolean
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ inputs.tag || github.ref_name }}
+  group: release
   cancel-in-progress: false
 
 jobs:
   build:
     runs-on: macos-26
     timeout-minutes: 50
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.2.app/Contents/Developer
       ACC_BUILD_JOBS: "3"
       ACC_UNIVERSAL: "1"
-      ACC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          ref: ${{ inputs.tag || github.ref_name }}
+          fetch-depth: 0
           persist-credentials: false
-      - name: Validate version tag
+      - name: Assign next version
+        id: version
         run: |
-          python3 - <<'PY'
-          import os, plistlib, re, subprocess
-          tag = os.environ['ACC_RELEASE_TAG']
-          if not re.fullmatch(r'v[0-9]+\.[0-9]+\.[0-9]+', tag):
-              raise SystemExit('Use a stable version tag such as v0.2.0.')
-          version = plistlib.load(open('Resources/Info.plist', 'rb'))['CFBundleShortVersionString']
-          if tag != f'v{version}':
-              raise SystemExit('Tag and app version do not match.')
-          subprocess.run(['git', 'show-ref', '--verify', f'refs/tags/{tag}'], check=True)
-          def revision(value):
-              return subprocess.check_output(['git', 'rev-parse', value], text=True).strip()
-          if revision('HEAD') != revision(f'refs/tags/{tag}^{{commit}}'):
-              raise SystemExit('The checked-out commit does not match the release tag.')
-          PY
+          version=$(python3 scripts/next-version.py --stamp)
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "ACC_RELEASE_TAG=v$version" >> "$GITHUB_ENV"
+          echo "Releasing Acc $version"
       - name: Core tests
         run: swift test --jobs 3
       - name: Prepare optional signing and notarization
@@ -123,7 +115,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
-      ACC_RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      ACC_RELEASE_TAG: ${{ needs.build.outputs.tag }}
       ACC_DRAFT: ${{ github.event_name == 'workflow_dispatch' && inputs.draft }}
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -140,10 +132,10 @@ jobs:
               exit 1
             fi
             gh release upload "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt --clobber
-            gh release edit "$ACC_RELEASE_TAG" --notes-file release-notes.md
+            gh release edit "$ACC_RELEASE_TAG" --target "$GITHUB_SHA" --notes-file release-notes.md
           else
             gh release create "$ACC_RELEASE_TAG" Acc-macOS.zip SHA256SUMS.txt \
-              --verify-tag --draft --title "Acc ${ACC_RELEASE_TAG#v}" \
+              --target "$GITHUB_SHA" --draft --title "Acc ${ACC_RELEASE_TAG#v}" \
               --notes-file release-notes.md --generate-notes
           fi
           if [ "$ACC_DRAFT" != true ]; then

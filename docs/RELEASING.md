@@ -1,35 +1,43 @@
 # Releasing Acc
 
-GitHub Actions performs all compilation. The release workflow runs the tests,
-builds a universal Apple silicon/Intel app, installs and verifies the signed
-bundle on the runner, exercises offline CLI workflows, and packages the app.
-Public assets are **Acc-macOS.zip** and **SHA256SUMS.txt**.
+Every push to `main` is a release. GitHub Actions runs the tests, builds a
+universal Apple silicon/Intel app, installs and verifies the signed bundle on
+the runner, exercises offline CLI workflows, packages the app, and publishes
+**Acc-macOS.zip** and **SHA256SUMS.txt**. Pushes that change only docs,
+Markdown, or the license do not release, and neither do commits marked
+`[skip ci]`. Pull requests run CI without releasing.
 
-## Publish a version
-
-1. Update the version in `Resources/Info.plist`, the CLI, and `AppVersion`'s
-   fallback. Increment `CFBundleVersion`.
-2. Merge the reviewed changes to `main` and verify CI. Download the CI artifact
-   for interactive acceptance; use synthetic accounts for screenshots.
-3. Create and push the matching tag, for example:
-
-   ```sh
-   git tag v0.2.1
-   git push origin v0.2.1
-   ```
-
-The **Release** workflow publishes only after all its checks pass. It creates a
-draft first, attaches the app and checksum, then makes the release public. The tag
-must match the app version. A public release is never overwritten; use a new
-version for a fix.
-
-To retry a failed release, choose **Actions → Release → Run workflow**, enter the
-existing tag, and leave **draft** selected to review it before publishing. The
-same operation is available through the CLI:
+## Push
 
 ```sh
-gh workflow run release.yml -f tag=v0.2.1 -F draft=true
+scripts/push.sh
 ```
+
+The script requires a clean, up-to-date `main`, runs `swift test` and
+`scripts/build-app.sh` (which installs `/Applications/Acc.app`), pushes, then
+follows the Release run and prints the release URL.
+
+## Versions
+
+Releases take the next patch after the newest `v*` tag. To start a new minor
+or major line, raise `AccVersion.current` in `Sources/AccCore/Version.swift`;
+the next release uses that version when it is higher. `scripts/build-app.sh`
+stamps the bundle from that file, and the workflow stamps it with the assigned
+version before building, so the app, CLI, tag, and asset always agree. Check
+what the next push will publish with `python3 scripts/next-version.py`.
+
+Releases run one at a time. A failed run publishes nothing and creates no tag,
+so the next push retries the same version. A public release is never
+overwritten.
+
+To review a release before it goes public, choose **Actions → Release → Run
+workflow** with **draft** selected, or:
+
+```sh
+gh workflow run release.yml -F draft=true
+```
+
+Publish the draft from GitHub when it looks right.
 
 ## Signing and notarization
 
@@ -55,7 +63,7 @@ For notarization, also configure all three:
 | `ACC_APPLE_TEAM_ID` | Developer team ID |
 
 Partial configuration fails the release instead of silently downgrading it.
-Secrets are used only on the tag/manual release path, never in pull requests.
+Secrets are used only by the Release workflow on `main`, never in pull requests.
 The workflow imports signing material into a temporary keychain, enables hardened
 runtime and secure timestamps, submits with `notarytool`, staples the accepted
 ticket, and checks Gatekeeper acceptance before publishing. The keychain and

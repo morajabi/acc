@@ -32,7 +32,7 @@ struct AccCLI {
         if !args.isEmpty { args.removeFirst() }
         switch command {
         case "help", "--help", "-h": print(help)
-        case "version", "--version": print("acc 0.2.1")
+        case "version", "--version": print("acc \(AccVersion.current)")
         case "list":
             try requireEmpty(args)
             try output(await service.accounts(), json: json)
